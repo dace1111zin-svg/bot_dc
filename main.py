@@ -67,19 +67,21 @@ def format_time(seconds):
     minutes, _ = divmod(remainder, 60)
     return f"{hours:02}h {minutes:02}m"
 
-def _save_voice_time(user_id: str, duration: float):
+async def _save_voice_time(user_id: str, duration: float):
     if collection is None or duration < 1:
         return
     today = datetime.now().strftime("%b %d, %Y")
-    collection.update_one(
-        {"user_id": user_id},
-        {"$inc": {"total_seconds": duration}},
-        upsert=True
-    )
-    collection.update_one(
-        {"user_id": user_id, "first_join": {"$exists": False}},
-        {"$set": {"first_join": today}}
-    )
+    def run():
+        collection.update_one(
+            {"user_id": user_id},
+            {"$inc": {"total_seconds": duration}},
+            upsert=True
+        )
+        collection.update_one(
+            {"user_id": user_id, "first_join": {"$exists": False}},
+            {"$set": {"first_join": today}}
+        )
+    await asyncio.to_thread(run)
 
 async def force_join_stay_channel():
     channel = bot.get_channel(STAY_VOICE_CHANNEL_ID)
@@ -127,7 +129,9 @@ async def get_leaderboard_embed():
     if collection is None:
         return discord.Embed(description="Database Error")
 
-    data = list(collection.find().sort("total_seconds", -1).limit(10))
+    def run():
+        return list(collection.find().sort("total_seconds", -1).limit(10))
+    data = await asyncio.to_thread(run)
     embed = discord.Embed(
         title="✨ TEMPERATURE VOICE LEADERBOARD ✨",
         description="🏆 តារាងអ្នកសកម្មបំផុតក្នុង Voice Channels គ្រប់ជាន់ថ្នាក់\n" + "—" * 25,
@@ -179,18 +183,22 @@ async def get_leaderboard_embed():
     return embed
 
 # Kla Klouk balance helpers
-def get_balance(user_id):
+async def get_balance(user_id):
     if money_col is None:
         return 1000
-    user = money_col.find_one({"user_id": user_id})
-    return user.get('balance', 1000) if user else 1000
+    def run():
+        user = money_col.find_one({"user_id": user_id})
+        return user.get('balance', 1000) if user else 1000
+    return await asyncio.to_thread(run)
 
-def update_balance(user_id, amount):
+async def update_balance(user_id, amount):
     if money_col is None:
         return 1000
-    current_bal = get_balance(user_id)
+    current_bal = await get_balance(user_id)
     new_bal     = current_bal + amount
-    money_col.update_one({"user_id": user_id}, {"$set": {"balance": new_bal}}, upsert=True)
+    def run():
+        money_col.update_one({"user_id": user_id}, {"$set": {"balance": new_bal}}, upsert=True)
+    await asyncio.to_thread(run)
     return new_bal
 
 # Web server request handler
@@ -280,10 +288,11 @@ class MoneyView(discord.ui.View):
     async def process_bet(self, interaction, amount):
         if interaction.user.id != self.user_id:
             return
-        if get_balance(self.user_id) < amount:
+        current_bal = await get_balance(self.user_id)
+        if current_bal < amount:
             return await interaction.response.send_message("❌ លុយមិនគ្រាន់ទេ!", ephemeral=True)
 
-        update_balance(self.user_id, -amount)
+        await update_balance(self.user_id, -amount)
         self.parent_view.bets[self.user_id] = {
             'choice': self.choice_emoji,
             'amount': amount,
@@ -400,15 +409,17 @@ async def on_member_join(member):
 
     # 💾 Save first_join date to MongoDB when user joins server
     if collection is not None:
-        collection.update_one(
-            {"user_id": str(member.id)},
-            {"$setOnInsert": {
-                "user_id": str(member.id),
-                "total_seconds": 0,
-                "first_join": datetime.now().strftime("%b %d, %Y")
-            }},
-            upsert=True
-        )
+        def run():
+            collection.update_one(
+                {"user_id": str(member.id)},
+                {"$setOnInsert": {
+                    "user_id": str(member.id),
+                    "total_seconds": 0,
+                    "first_join": datetime.now().strftime("%b %d, %Y")
+                }},
+                upsert=True
+            )
+        await asyncio.to_thread(run)
 
 @bot.event
 async def on_member_remove(member):
@@ -458,16 +469,16 @@ async def on_voice_state_update(member, before, after):
     elif left:
         if u_id in active_sessions:
             duration = now - active_sessions.pop(u_id)
-            _save_voice_time(u_id, duration)
+            await _save_voice_time(u_id, duration)
             # 🏆 Update rank role after saving time
-            user_data = collection.find_one({"user_id": u_id}) if collection is not None else None
+            user_data = await asyncio.to_thread(collection.find_one, {"user_id": u_id}) if collection is not None else None
             if user_data:
                 await update_rank_role(member, user_data.get('total_seconds', 0))
 
     elif switched:
         if u_id in active_sessions:
             duration = now - active_sessions[u_id]
-            _save_voice_time(u_id, duration)
+            await _save_voice_time(u_id, duration)
         active_sessions[u_id] = now
 
     # --- Part C: Auto Create Private Room ---
@@ -566,10 +577,13 @@ async def afk_income():
     """Give $10 every minute to all online members."""
     if money_col is None:
         return
+    db_tasks = []
     for guild in bot.guilds:
         for member in guild.members:
             if not member.bot and member.status != discord.Status.offline:
-                update_balance(member.id, 100)
+                db_tasks.append(update_balance(member.id, 100))
+    if db_tasks:
+        await asyncio.gather(*db_tasks)
 
 @tasks.loop(hours=24)
 async def auto_update_leaderboard():
@@ -593,7 +607,9 @@ async def top(ctx):
 async def me(ctx):
     """View your personal voice stats"""
     u_id      = str(ctx.author.id)
-    user_data = collection.find_one({"user_id": u_id}) if collection is not None else None
+    if collection is None:
+        return
+    user_data = await asyncio.to_thread(collection.find_one, {"user_id": u_id})
 
     if not user_data:
         embed = discord.Embed(
@@ -606,7 +622,9 @@ async def me(ctx):
     total_seconds = user_data.get('total_seconds', 0)
     join_date     = user_data.get('first_join', "Unknown")
 
-    all_users = list(collection.find().sort("total_seconds", -1))
+    def run():
+        return list(collection.find().sort("total_seconds", -1))
+    all_users = await asyncio.to_thread(run)
     rank_pos  = next((i + 1 for i, d in enumerate(all_users) if d['user_id'] == u_id), None)
     rank_str  = f"🏆 #{rank_pos}" if rank_pos else "—"
 
@@ -633,8 +651,13 @@ async def stats(ctx):
         await ctx.send("❌ Database មិនអាចភ្ជាប់បានទេ។")
         return
 
-    total_users   = collection.count_documents({})
-    total_data    = list(collection.find())
+    def run():
+        total_users = collection.count_documents({})
+        total_data  = list(collection.find())
+        top3        = list(collection.find().sort("total_seconds", -1).limit(3))
+        return total_users, total_data, top3
+
+    total_users, total_data, top3 = await asyncio.to_thread(run)
     total_seconds = sum(d.get('total_seconds', 0) for d in total_data)
     active_now    = len(active_sessions)
 
@@ -688,7 +711,7 @@ async def klaklouk(ctx):
     for uid, data in view.bets.items():
         count = res.count(data['choice'])
         if count > 0:
-            update_balance(uid, data['amount'] + (data['amount'] * count))
+            await update_balance(uid, data['amount'] + (data['amount'] * count))
             results.append(f"✅ **{data['name']}** ឈ្នះ `${data['amount']*count:,}`")
         else:
             results.append(f"💸 **{data['name']}** ចាញ់ `${data['amount']:,}`")
@@ -706,9 +729,11 @@ async def klaklouk(ctx):
 async def luyme(ctx):
     """Check your Kla Klouk balance and rank"""
     user_id = ctx.author.id
-    balance = get_balance(user_id)
+    balance = await get_balance(user_id)
 
-    all_users = list(money_col.find().sort("balance", -1)) if money_col is not None else []
+    def run():
+        return list(money_col.find().sort("balance", -1)) if money_col is not None else []
+    all_users = await asyncio.to_thread(run)
     rank      = next((i for i, u in enumerate(all_users, 1) if u['user_id'] == user_id), "N/A")
 
     embed = discord.Embed(color=0x5865F2)
@@ -724,7 +749,9 @@ async def topluy(ctx):
     """View the Top 10 richest users"""
     if money_col is None:
         return
-    top         = money_col.find().sort("balance", -1).limit(10)
+    def run():
+        return list(money_col.find().sort("balance", -1).limit(10))
+    top = await asyncio.to_thread(run)
     leaderboard = ""
     for i, user in enumerate(top, 1):
         u    = bot.get_user(user['user_id'])
@@ -749,7 +776,7 @@ async def give(ctx, member: discord.Member, amount: int):
         )
         return await ctx.send(embed=embed, delete_after=10)
 
-    new_bal = update_balance(member.id, amount)
+    new_bal = await update_balance(member.id, amount)
 
     embed = discord.Embed(
         title="💸 ផ្ទេរប្រាក់បានជោគជ័យ!",
