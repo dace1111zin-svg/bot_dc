@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands, tasks
 import os
+import sys
 import time
 import random
 import asyncio
@@ -8,6 +9,12 @@ from datetime import datetime
 from dotenv import load_dotenv
 from pymongo import MongoClient
 import certifi
+from aiohttp import web
+
+# Force UTF-8 encoding for stdout/stderr to support emojis on Windows
+if sys.platform.startswith('win'):
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 
 # ════════════════════════════════════════════
 # 🟢 1. SETUP & DATABASE
@@ -186,6 +193,21 @@ def update_balance(user_id, amount):
     money_col.update_one({"user_id": user_id}, {"$set": {"balance": new_bal}}, upsert=True)
     return new_bal
 
+# Web server request handler
+async def handle(request):
+    return web.Response(text="Bot is running!")
+
+# Start the aiohttp web server on the specified port
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/', handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.getenv('PORT', 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    print(f"✅ [WEB SERVER] Listening on port {port}")
+
 # ════════════════════════════════════════════
 # 🚪 4. PRIVATE ROOM — KNOCK / APPROVE VIEW
 # ════════════════════════════════════════════
@@ -331,6 +353,8 @@ class KlaKloukView(discord.ui.View):
 @bot.event
 async def on_ready():
     print(f'✅ Bot Status: ONLINE ({bot.user.name})')
+    # Start web server for free-tier hosting pinging
+    bot.loop.create_task(start_web_server())
     if not afk_income.is_running():
         afk_income.start()
     if not auto_update_leaderboard.is_running():
