@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 from pymongo import MongoClient
 import certifi
 from aiohttp import web
+import secrets
+from questions import KHMER_QUIZ
 
 # Force UTF-8 encoding for stdout/stderr to support emojis on Windows
 if sys.platform.startswith('win'):
@@ -46,6 +48,54 @@ PARENT_CATEGORY_ID     = 1494236441725767701
 # 🎭 Auto Role — ID of role to give every new member
 AUTO_ROLE_ID = 0  # ← ដាក់ ID Role របស់អ្នក
 
+def load_settings():
+    global STAY_VOICE_CHANNEL_ID, WELCOME_CHANNEL_ID, LEADERBOARD_CHANNEL_ID, CREATE_CHANNEL_ID, PARENT_CATEGORY_ID, AUTO_ROLE_ID
+    if db is not None:
+        try:
+            settings_col = db['settings']
+            for doc in settings_col.find():
+                key = doc.get("key")
+                val = doc.get("value")
+                if val is not None:
+                    try:
+                        val_int = int(val)
+                    except ValueError:
+                        val_int = val
+                    if key == "STAY_VOICE_CHANNEL_ID": STAY_VOICE_CHANNEL_ID = val_int
+                    elif key == "WELCOME_CHANNEL_ID": WELCOME_CHANNEL_ID = val_int
+                    elif key == "LEADERBOARD_CHANNEL_ID": LEADERBOARD_CHANNEL_ID = val_int
+                    elif key == "CREATE_CHANNEL_ID": CREATE_CHANNEL_ID = val_int
+                    elif key == "PARENT_CATEGORY_ID": PARENT_CATEGORY_ID = val_int
+                    elif key == "AUTO_ROLE_ID": AUTO_ROLE_ID = val_int
+            print("✅ [SETTINGS] Configuration loaded from MongoDB.")
+        except Exception as e:
+            print(f"❌ [SETTINGS] Load error: {e}")
+
+def save_setting(key, val):
+    global STAY_VOICE_CHANNEL_ID, WELCOME_CHANNEL_ID, LEADERBOARD_CHANNEL_ID, CREATE_CHANNEL_ID, PARENT_CATEGORY_ID, AUTO_ROLE_ID
+    try:
+        val_int = int(val)
+    except ValueError:
+        val_int = val
+
+    if key == "STAY_VOICE_CHANNEL_ID": STAY_VOICE_CHANNEL_ID = val_int
+    elif key == "WELCOME_CHANNEL_ID": WELCOME_CHANNEL_ID = val_int
+    elif key == "LEADERBOARD_CHANNEL_ID": LEADERBOARD_CHANNEL_ID = val_int
+    elif key == "CREATE_CHANNEL_ID": CREATE_CHANNEL_ID = val_int
+    elif key == "PARENT_CATEGORY_ID": PARENT_CATEGORY_ID = val_int
+    elif key == "AUTO_ROLE_ID": AUTO_ROLE_ID = val_int
+
+    if db is not None:
+        try:
+            settings_col = db['settings']
+            settings_col.update_one({"key": key}, {"$set": {"value": val_int}}, upsert=True)
+            print(f"✅ [SETTINGS] Saved key {key} to db: {val_int}")
+        except Exception as e:
+            print(f"❌ [SETTINGS] Save error: {e}")
+
+# Load active configuration settings
+load_settings()
+
 # 🏆 Rank Roles — (min_hours, role_id, label)
 RANK_ROLES = [
     (1,   0, "🌱 Newcomer"),   # ← ដាក់ Role IDs
@@ -55,7 +105,8 @@ RANK_ROLES = [
 ]
 
 intents = discord.Intents.all()
-bot = commands.Bot(command_prefix='/', intents=intents)
+bot = commands.Bot(command_prefix='.', intents=intents)
+start_time = time.time()
 active_sessions = {}
 room_data = {}   # voice_channel_id → {"owner": member_id, "category": category_id}
 
@@ -201,14 +252,471 @@ async def update_balance(user_id, amount):
     await asyncio.to_thread(run)
     return new_bal
 
-# Web server request handler
-async def handle(request):
-    return web.Response(text="Bot is running!")
+# ════════════════════════════════════════════
+# 🌐 ADMIN DASHBOARD REST APIs & ROUTING
+# ════════════════════════════════════════════
+dashboard_tokens = set()
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 
-# Start the aiohttp web server on the specified port
+def auth_required(handler):
+    async def wrapper(request):
+        auth_header = request.headers.get('Authorization', '')
+        token = auth_header.replace('Bearer ', '').strip() if auth_header.startswith('Bearer ') else ''
+        if not token or token not in dashboard_tokens:
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        return await handler(request)
+    return wrapper
+
+# Auth verification endpoint
+@auth_required
+async def api_verify(request):
+    return web.json_response({"success": True})
+
+# Admin login endpoint
+async def api_login(request):
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+    
+    password = data.get("password")
+    if password == ADMIN_PASSWORD:
+        token = secrets.token_hex(16)
+        dashboard_tokens.add(token)
+        return web.json_response({"success": True, "token": token})
+    return web.json_response({"error": "Invalid password"}, status=401)
+
+# Stats endpoint
+@auth_required
+async def api_stats(request):
+    uptime_sec = time.time() - start_time
+    latency_ms = round(bot.latency * 1000, 2) if bot.latency else 0
+    guilds_count = len(bot.guilds)
+    total_members = sum(g.member_count for g in bot.guilds)
+    active_voice = len(active_sessions)
+    
+    def run_db_stats():
+        v_count = collection.count_documents({}) if collection is not None else 0
+        m_count = money_col.count_documents({}) if money_col is not None else 0
+        
+        v_total_sec = 0
+        if collection is not None:
+            for doc in collection.find({}, {"total_seconds": 1}):
+                v_total_sec += doc.get("total_seconds", 0)
+                
+        m_total_bal = 0
+        if money_col is not None:
+            for doc in money_col.find({}, {"balance": 1}):
+                m_total_bal += doc.get("balance", 0)
+        
+        return v_count, m_count, v_total_sec, m_total_bal
+        
+    v_count, m_count, v_total_sec, m_total_bal = await asyncio.to_thread(run_db_stats)
+    
+    return web.json_response({
+        "uptime": uptime_sec,
+        "latency": latency_ms,
+        "guilds_count": guilds_count,
+        "total_members": total_members,
+        "active_voice": active_voice,
+        "db_connected": collection is not None,
+        "voice_users_count": v_count,
+        "economy_users_count": m_count,
+        "total_voice_seconds": v_total_sec,
+        "total_balance_circulation": m_total_bal
+    })
+
+# Users retrieval endpoint
+@auth_required
+async def api_users(request):
+    search_query = request.query.get("search", "").strip().lower()
+    
+    def run_query():
+        v_list = list(collection.find()) if collection is not None else []
+        m_list = list(money_col.find()) if money_col is not None else []
+        return v_list, m_list
+        
+    v_list, m_list = await asyncio.to_thread(run_query)
+    
+    merged = {}
+    for item in v_list:
+        uid = item.get("user_id")
+        if uid:
+            merged[uid] = {
+                "user_id": uid,
+                "total_seconds": item.get("total_seconds", 0),
+                "first_join": item.get("first_join", "Unknown"),
+                "balance": 1000
+            }
+            
+    for item in m_list:
+        uid = item.get("user_id")
+        if uid:
+            if uid not in merged:
+                merged[uid] = {
+                    "user_id": uid,
+                    "total_seconds": 0,
+                    "first_join": "Unknown",
+                    "balance": 1000
+                }
+            merged[uid]["balance"] = item.get("balance", 1000)
+            
+    users_data = []
+    for uid, u_info in merged.items():
+        try:
+            uid_int = int(uid)
+            discord_user = bot.get_user(uid_int)
+            if not discord_user:
+                for guild in bot.guilds:
+                    member = guild.get_member(uid_int)
+                    if member:
+                        discord_user = member
+                        break
+        except Exception:
+            discord_user = None
+            
+        username = discord_user.name if discord_user else f"User {uid}"
+        display_name = discord_user.display_name if discord_user else username
+        avatar_url = str(discord_user.display_avatar.url) if discord_user else "https://cdn.discordapp.com/embed/avatars/0.png"
+        
+        if search_query:
+            if (search_query not in uid.lower() and 
+                search_query not in username.lower() and 
+                search_query not in display_name.lower()):
+                continue
+                
+        u_info["username"] = username
+        u_info["display_name"] = display_name
+        u_info["avatar_url"] = avatar_url
+        users_data.append(u_info)
+        
+    users_data.sort(key=lambda x: x.get("balance", 0), reverse=True)
+    return web.json_response({"users": users_data})
+
+# User update endpoint
+@auth_required
+async def api_users_update(request):
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+        
+    user_id = data.get("user_id")
+    field = data.get("field")
+    value = data.get("value")
+    
+    if not user_id or field not in ("balance", "total_seconds") or value is None:
+        return web.json_response({"error": "Missing or invalid fields"}, status=400)
+        
+    try:
+        val_num = int(value)
+    except ValueError:
+        return web.json_response({"error": "Value must be an integer"}, status=400)
+        
+    if field == "balance":
+        if money_col is None:
+            return web.json_response({"error": "Database not connected"}, status=500)
+        def run_money():
+            money_col.update_one({"user_id": user_id}, {"$set": {"balance": val_num}}, upsert=True)
+        await asyncio.to_thread(run_money)
+    else:
+        if collection is None:
+            return web.json_response({"error": "Database not connected"}, status=500)
+        def run_voice():
+            collection.update_one({"user_id": user_id}, {"$set": {"total_seconds": val_num}}, upsert=True)
+        await asyncio.to_thread(run_voice)
+        
+    return web.json_response({"success": True})
+
+# Configuration getters/setters
+@auth_required
+async def api_config_get(request):
+    return web.json_response({
+        "STAY_VOICE_CHANNEL_ID": str(STAY_VOICE_CHANNEL_ID),
+        "WELCOME_CHANNEL_ID": str(WELCOME_CHANNEL_ID),
+        "LEADERBOARD_CHANNEL_ID": str(LEADERBOARD_CHANNEL_ID),
+        "CREATE_CHANNEL_ID": str(CREATE_CHANNEL_ID),
+        "PARENT_CATEGORY_ID": str(PARENT_CATEGORY_ID),
+        "AUTO_ROLE_ID": str(AUTO_ROLE_ID)
+    })
+
+@auth_required
+async def api_config_set(request):
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+        
+    key = data.get("key")
+    value = data.get("value")
+    
+    if key not in ("STAY_VOICE_CHANNEL_ID", "WELCOME_CHANNEL_ID", "LEADERBOARD_CHANNEL_ID", "CREATE_CHANNEL_ID", "PARENT_CATEGORY_ID", "AUTO_ROLE_ID"):
+        return web.json_response({"error": "Invalid configuration key"}, status=400)
+        
+    try:
+        save_setting(key, value)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+        
+    return web.json_response({"success": True})
+
+# Broadcast listing and dispatcher
+@auth_required
+async def api_channels_get(request):
+    channels = []
+    for guild in bot.guilds:
+        for channel in guild.text_channels:
+            channels.append({
+                "guild_name": guild.name,
+                "channel_name": channel.name,
+                "channel_id": str(channel.id)
+            })
+    return web.json_response({"channels": channels})
+
+@auth_required
+async def api_broadcast(request):
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+        
+    channel_id_str = data.get("channel_id")
+    message_text = data.get("message", "")
+    embed_data = data.get("embed")
+    
+    if not channel_id_str:
+        return web.json_response({"error": "Missing channel_id"}, status=400)
+        
+    try:
+        channel_id = int(channel_id_str)
+        channel = bot.get_channel(channel_id)
+        if not channel:
+            channel = await bot.fetch_channel(channel_id)
+    except Exception as e:
+        return web.json_response({"error": f"Channel not found: {e}"}, status=404)
+        
+    try:
+        embed = None
+        if embed_data and (embed_data.get("title") or embed_data.get("description")):
+            color_val = 0x5865f2
+            color_hex = embed_data.get("color", "").replace("#", "")
+            if color_hex:
+                try:
+                    color_val = int(color_hex, 16)
+                except ValueError:
+                    pass
+            
+            embed = discord.Embed(
+                title=embed_data.get("title"),
+                description=embed_data.get("description"),
+                color=color_val,
+                timestamp=datetime.now()
+            )
+            
+            if embed_data.get("thumbnail_url"):
+                embed.set_thumbnail(url=embed_data.get("thumbnail_url"))
+                
+            if embed_data.get("footer_text"):
+                embed.set_footer(text=embed_data.get("footer_text"), icon_url=bot.user.display_avatar.url if bot.user.display_avatar else None)
+                
+        if embed:
+            await channel.send(content=message_text or None, embed=embed)
+        else:
+            await channel.send(content=message_text)
+            
+        return web.json_response({"success": True})
+    except Exception as e:
+        return web.json_response({"error": f"Failed to send message: {e}"}, status=500)
+
+# Public Leaderboards endpoint
+async def api_public_leaderboards(request):
+    def run_query():
+        v_list = list(collection.find().sort("total_seconds", -1).limit(50)) if collection is not None else []
+        m_list = list(money_col.find().sort("balance", -1).limit(50)) if money_col is not None else []
+        return v_list, m_list
+
+    v_list, m_list = await asyncio.to_thread(run_query)
+    
+    uids = set()
+    for item in v_list:
+        if item.get("user_id"): uids.add(item["user_id"])
+    for item in m_list:
+        if item.get("user_id"): uids.add(item["user_id"])
+        
+    user_details = {}
+    for uid in uids:
+        try:
+            uid_int = int(uid)
+            discord_user = bot.get_user(uid_int)
+            if not discord_user:
+                for guild in bot.guilds:
+                    member = guild.get_member(uid_int)
+                    if member:
+                        discord_user = member
+                        break
+        except Exception:
+            discord_user = None
+            
+        username = discord_user.name if discord_user else f"User {uid}"
+        display_name = discord_user.display_name if discord_user else username
+        avatar_url = str(discord_user.display_avatar.url) if discord_user else "https://cdn.discordapp.com/embed/avatars/0.png"
+        user_details[uid] = {
+            "username": username,
+            "display_name": display_name,
+            "avatar_url": avatar_url
+        }
+        
+    voice_leaderboard = []
+    for item in v_list:
+        uid = item.get("user_id")
+        details = user_details.get(uid, {"username": f"User {uid}", "display_name": f"User {uid}", "avatar_url": "https://cdn.discordapp.com/embed/avatars/0.png"})
+        voice_leaderboard.append({
+            "user_id": uid,
+            "total_seconds": item.get("total_seconds", 0),
+            "first_join": item.get("first_join", "Unknown"),
+            "username": details["username"],
+            "display_name": details["display_name"],
+            "avatar_url": details["avatar_url"]
+        })
+        
+    economy_leaderboard = []
+    for item in m_list:
+        uid = item.get("user_id")
+        details = user_details.get(uid, {"username": f"User {uid}", "display_name": f"User {uid}", "avatar_url": "https://cdn.discordapp.com/embed/avatars/0.png"})
+        economy_leaderboard.append({
+            "user_id": uid,
+            "balance": item.get("balance", 1000),
+            "username": details["username"],
+            "display_name": details["display_name"],
+            "avatar_url": details["avatar_url"]
+        })
+        
+    return web.json_response({
+        "voice": voice_leaderboard,
+        "economy": economy_leaderboard
+    })
+
+# Public Search endpoint
+async def api_public_search(request):
+    query = request.query.get("q", "").strip().lower()
+    if not query:
+        return web.json_response({"results": []})
+        
+    matching_member_ids = set()
+    if query.isdigit():
+        matching_member_ids.add(query)
+        
+    for guild in bot.guilds:
+        for member in guild.members:
+            if (query in member.name.lower() or 
+                (member.nick and query in member.nick.lower()) or 
+                (member.global_name and query in member.global_name.lower()) or
+                query == str(member.id)):
+                matching_member_ids.add(str(member.id))
+                if len(matching_member_ids) >= 15:
+                    break
+        if len(matching_member_ids) >= 15:
+            break
+            
+    def run_db_query(uids_list):
+        voice_records = {}
+        if collection is not None:
+            for r in collection.find({"user_id": {"$in": uids_list}}):
+                voice_records[r["user_id"]] = r
+                
+        money_records = {}
+        if money_col is not None:
+            for r in money_col.find({"user_id": {"$in": uids_list}}):
+                money_records[r["user_id"]] = r
+                
+        return voice_records, money_records
+        
+    uids_list = list(matching_member_ids)
+    voice_records, money_records = await asyncio.to_thread(run_db_query, uids_list)
+    
+    results = []
+    for uid in uids_list:
+        v_rec = voice_records.get(uid, {})
+        m_rec = money_records.get(uid, {})
+        
+        try:
+            uid_int = int(uid)
+            discord_user = bot.get_user(uid_int)
+            if not discord_user:
+                for guild in bot.guilds:
+                    member = guild.get_member(uid_int)
+                    if member:
+                        discord_user = member
+                        break
+        except Exception:
+            discord_user = None
+            
+        if not discord_user and not v_rec and not m_rec:
+            continue
+            
+        username = discord_user.name if discord_user else f"User {uid}"
+        display_name = discord_user.display_name if discord_user else username
+        avatar_url = str(discord_user.display_avatar.url) if discord_user else "https://cdn.discordapp.com/embed/avatars/0.png"
+        
+        results.append({
+            "user_id": uid,
+            "username": username,
+            "display_name": display_name,
+            "avatar_url": avatar_url,
+            "total_seconds": v_rec.get("total_seconds", 0),
+            "first_join": v_rec.get("first_join", "Unknown"),
+            "balance": m_rec.get("balance", 1000)
+        })
+        
+    def get_ranks(uid, voice_sec, balance):
+        v_rank = 0
+        m_rank = 0
+        if collection is not None and voice_sec > 0:
+            v_rank = collection.count_documents({"total_seconds": {"$gt": voice_sec}}) + 1
+        if money_col is not None:
+            m_rank = money_col.count_documents({"balance": {"$gt": balance}}) + 1
+        return v_rank, m_rank
+        
+    for r in results:
+        v_rank, m_rank = await asyncio.to_thread(get_ranks, r["user_id"], r["total_seconds"], r["balance"])
+        r["voice_rank"] = v_rank or "N/A"
+        r["economy_rank"] = m_rank or "N/A"
+        
+    results.sort(key=lambda x: x.get("total_seconds", 0), reverse=True)
+    return web.json_response({"results": results})
+
+# Static file serving handlers
+async def index_handler(request):
+    return web.FileResponse(os.path.join(os.path.dirname(__file__), 'dashboard', 'index.html'))
+
+async def style_handler(request):
+    return web.FileResponse(os.path.join(os.path.dirname(__file__), 'dashboard', 'style.css'))
+
+async def app_js_handler(request):
+    return web.FileResponse(os.path.join(os.path.dirname(__file__), 'dashboard', 'app.js'))
+
+# Start aiohttp server with dashboard configurations
 async def start_web_server():
     app = web.Application()
-    app.router.add_get('/', handle)
+    
+    # API endpoints
+    app.router.add_post('/api/login', api_login)
+    app.router.add_get('/api/verify', api_verify)
+    app.router.add_get('/api/public/leaderboards', api_public_leaderboards)
+    app.router.add_get('/api/public/search', api_public_search)
+    app.router.add_get('/api/stats', api_stats)
+    app.router.add_get('/api/users', api_users)
+    app.router.add_post('/api/users/update', api_users_update)
+    app.router.add_get('/api/config', api_config_get)
+    app.router.add_post('/api/config', api_config_set)
+    app.router.add_get('/api/channels', api_channels_get)
+    app.router.add_post('/api/broadcast', api_broadcast)
+    
+    # Static files routing
+    app.router.add_get('/', index_handler)
+    app.router.add_get('/style.css', style_handler)
+    app.router.add_get('/app.js', app_js_handler)
+    
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.getenv('PORT', 8080))
@@ -369,6 +877,8 @@ async def on_ready():
     if not auto_update_leaderboard.is_running():
         auto_update_leaderboard.start()
     await force_join_stay_channel()
+    print(f"🔑 [DASHBOARD] Web Admin Dashboard is running at http://localhost:{os.getenv('PORT', 8080)}")
+    print(f"🔑 [DASHBOARD] Login password: {ADMIN_PASSWORD}")
 
 @bot.event
 async def on_member_join(member):
@@ -563,7 +1073,7 @@ async def on_command_error(ctx, error):
             title="❌ បញ្ជាមិនត្រឹមត្រូវ!",
             description=(
                 f"មិនមានបញ្ជា `{ctx.invoked_with}` ក្នុងប្រព័ន្ធទេ។\n\n"
-                f"💡 បញ្ជាដែលត្រឹមត្រូវ: `/top`, `/me`, `/stats`, `/klaklouk`, `/luyme`, `/topluy`, `/give`"
+                f"💡 បញ្ជាដែលត្រឹមត្រូវ: `.top`, `.me`, `.stats`, `.klaklouk`, `.luyme`, `.topluy`, `.give`, `.quiz`"
             ),
             color=0xff0000
         )
@@ -767,7 +1277,7 @@ async def topluy(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def give(ctx, member: discord.Member, amount: int):
-    """Admin: Give money to a user — /give @user amount"""
+    """Admin: Give money to a user — .give @user amount"""
     if amount <= 0:
         embed = discord.Embed(
             title="❌ បរិមាណមិនត្រឹមត្រូវ!",
@@ -820,14 +1330,14 @@ async def give_error(ctx, error):
     elif isinstance(error, commands.MissingRequiredArgument):
         embed = discord.Embed(
             title="❌ របៀបប្រើ",
-            description="**`/give @user amount`**\nឧទាហរណ៍: `/give @John 5000`",
+            description="**`.give @user amount`**\nឧទាហរណ៍: `.give @John 5000`",
             color=0xff0000
         )
         await ctx.send(embed=embed, delete_after=10)
     elif isinstance(error, commands.BadArgument):
         embed = discord.Embed(
             title="❌ របៀបប្រើ",
-            description="**`/give @user amount`**\nឧទាហរណ៍: `/give @John 5000`",
+            description="**`.give @user amount`**\nឧទាហរណ៍: `.give @John 5000`",
             color=0xff0000
         )
         await ctx.send(embed=embed, delete_after=10)
@@ -836,7 +1346,7 @@ async def give_error(ctx, error):
 @bot.command()
 @commands.has_permissions(ban_members=True)
 async def ban(ctx, member: discord.Member, *, reason: str = "គ្មានមូលហេតុបានផ្ដល់"):
-    """Admin: Ban a user — /ban @user [reason]"""
+    """Admin: Ban a user — .ban @user [reason]"""
     if member == ctx.author:
         return await ctx.send(
             embed=discord.Embed(description="❌ អ្នកមិនអាច Ban ខ្លួនឯងបានទេ!", color=0xff0000),
@@ -887,9 +1397,193 @@ async def ban_error(ctx, error):
         )
     elif isinstance(error, commands.BadArgument):
         await ctx.send(
-            embed=discord.Embed(description="❌ **`/ban @user [reason]`**\nឧទាហរណ៍: `/ban @John spam`", color=0xff0000),
+            embed=discord.Embed(description="❌ **`.ban @user [reason]`**\nឧទាហរណ៍: `.ban @John spam`", color=0xff0000),
             delete_after=10
         )
+
+# ════════════════════════════════════════════
+# ── Khmer TTS helper ────────────────────────
+async def download_tts(text: str, filename: str):
+    import urllib.parse
+    import aiohttp
+    encoded_text = urllib.parse.quote(text)
+    url = f"https://translate.google.com/translate_tts?ie=UTF-8&tl=km&client=tw-ob&q={encoded_text}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers) as response:
+            if response.status == 200:
+                with open(filename, 'wb') as f:
+                    f.write(await response.read())
+                return True
+    return False
+
+# ── Khmer Quiz Game ─────────────────────────
+class QuizPlayAgainView(discord.ui.View):
+    def __init__(self, ctx, history):
+        super().__init__(timeout=60)
+        self.ctx, self.history = ctx, history
+
+    @discord.ui.button(label="លេងម្ដងទៀត", style=discord.ButtonStyle.primary, emoji="🔄")
+    async def play_again(self, interaction: discord.Interaction, button: discord.ui.Button):
+        for msg in self.history:
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+        await self.ctx.invoke(bot.get_command('quiz'))
+
+class QuizView(discord.ui.View):
+    def __init__(self, ctx, correct_answer, options, history):
+        super().__init__(timeout=15.0) # ទុកពេល ១៥ វិនាទីសម្រាប់ឆ្លើយ
+        self.ctx = ctx
+        self.correct_answer = correct_answer
+        self.history = history
+        self.message = None
+        self.answers = {} # សម្រាប់ផ្ទុកចម្លើយ៖ user_id -> (username, is_correct, chosen_option)
+        
+        # បង្កើតប៊ូតុងចំនួន ៣ តាមជម្រើសចម្លើយ
+        labels = ["ក", "ខ", "គ"]
+        for i, option in enumerate(options):
+            is_correct = (option == correct_answer)
+            button = discord.ui.Button(
+                label=f"{labels[i]}. {option}", 
+                style=discord.ButtonStyle.blurple,
+                custom_id=f"correct" if is_correct else f"wrong_{i}"
+            )
+            button.callback = self.button_callback
+            self.add_item(button)
+
+    async def button_callback(self, interaction: discord.Interaction):
+        user_id = interaction.user.id
+        
+        # ១. ពិនិត្យមើលថាតើអ្នកប្រើប្រាស់នេះធ្លាប់បានឆ្លើយរួចហើយឬនៅ
+        if user_id in self.answers:
+            await interaction.response.send_message("❌ អ្នកបានឆ្លើយសំណួរនេះរួចរាល់ហើយ!", ephemeral=True)
+            return
+
+        # ២. កំណត់ប៊ូតុងដែលបានចុច និងចម្លើយត្រូវ/ខុស
+        clicked_custom_id = interaction.data["custom_id"]
+        is_correct = (clicked_custom_id == "correct")
+
+        # ស្វែងរកជម្រើសដែលបានជ្រើសរើស
+        chosen_option = ""
+        for item in self.children:
+            if isinstance(item, discord.ui.Button) and item.custom_id == clicked_custom_id:
+                chosen_option = item.label.split(". ", 1)[-1]
+                break
+
+        # ៣. កត់ត្រាទុកចម្លើយរបស់អ្នកលេង
+        self.answers[user_id] = (interaction.user.display_name, is_correct, chosen_option)
+
+        # ៤. ផ្ញើសារឆ្លើយតបជាលក្ខណៈឯកជន (Ephemeral)
+        if is_correct:
+            await interaction.response.send_message(
+                content=f"🎉 ល្អណាស់ **{interaction.user.display_name}**! អ្នកឆ្លើយបានត្រឹមត្រូវហើយ! 🎯",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                content=f"❌ ខុសហើយ **{interaction.user.display_name}**! ចម្លើយត្រឹមត្រូវគឺ៖ **{self.correct_answer}**",
+                ephemeral=True
+            )
+
+    async def on_timeout(self):
+        if self.message:
+            # បិទប៊ូតុងទាំងអស់ និងប្ដូរពណ៌ចម្លើយត្រឹមត្រូវជាពណ៌បៃតង
+            for item in self.children:
+                if isinstance(item, discord.ui.Button):
+                    item.disabled = True
+                    if item.custom_id == "correct":
+                        item.style = discord.ButtonStyle.success
+                    else:
+                        item.style = discord.ButtonStyle.secondary
+
+            # បូកសរុបលទ្ធផលអ្នកលេង
+            correct_names = []
+            incorrect_names = []
+            for uid, (name, is_correct, option) in self.answers.items():
+                if is_correct:
+                    correct_names.append(f"**{name}**")
+                else:
+                    incorrect_names.append(f"**{name}**")
+
+            summary_text = f"\n\n✨ **លទ្ធផល**:\n"
+            summary_text += f"🎯 ចម្លើយត្រឹមត្រូវគឺ៖ **{self.correct_answer}**\n\n"
+            
+            if correct_names:
+                summary_text += f"✅ **អ្នកឆ្លើយត្រូវ** ({len(correct_names)} នាក់)៖ {', '.join(correct_names)}\n"
+            else:
+                summary_text += f"✅ **អ្នកឆ្លើយត្រូវ**៖ គ្មាន\n"
+                
+            if incorrect_names:
+                summary_text += f"❌ **អ្នកឆ្លើយខុស** ({len(incorrect_names)} នាក់)៖ {', '.join(incorrect_names)}\n"
+
+            try:
+                embed = self.message.embeds[0]
+                embed.description = embed.description.replace(
+                    "សូមចុចប៊ូតុងខាងក្រោមដើម្បីឆ្លើយ (មានពេល ១៥វិនាទី)៖",
+                    "⌛ បិទការឆ្លើយសំណួរ!"
+                )
+                embed.description += summary_text
+                
+                # ប្ដូរពណ៌ Embed តាមលទ្ធផល
+                if correct_names:
+                    embed.color = discord.Color.green()
+                else:
+                    embed.color = discord.Color.red()
+
+                await self.message.edit(embed=embed, view=QuizPlayAgainView(self.ctx, self.history))
+            except Exception as e:
+                print(f"Error in QuizView on_timeout: {e}")
+                
+            self.stop()
+
+@bot.command(name="quiz")
+async def quiz(ctx):
+    history = []
+    # ចាប់យកសំណួរចៃដន្យមួយពីក្នុង List
+    quiz_data = random.choice(KHMER_QUIZ)
+    question = quiz_data["question"]
+    options = quiz_data["options"]
+    correct_answer = quiz_data["correct_answer"]
+
+    # បង្កើតផ្ចាំ Embed ឲ្យមើលទៅស្អាតក្នុង Discord
+    embed = discord.Embed(
+        title="🧠 សំណួរពាក្យបណ្ដៅខ្មែរ",
+        description=f"**{question}**\n\nសូមចុចប៊ូតុងខាងក្រោមដើម្បីឆ្លើយ (មានពេល ១៥វិនាទី)៖",
+        color=discord.Color.gold()
+    )
+    embed.set_footer(text="ហ្គេមបង្កើតឡើងដោយជំនួយការ AI")
+
+    view = QuizView(ctx, correct_answer, options, history)
+    message = await ctx.send(embed=embed, view=view)
+    history.append(message)
+    view.message = message
+
+    # លេងសំឡេងសំណួរ និងជម្រើសក្នុង Voice Channel
+    text_to_speak = f"{question} ជម្រើស កគឺ {options[0]}។ ខគឺ {options[1]}។ គគឺ {options[2]}។"
+
+    async def play_voice_task():
+        vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
+        if vc and vc.is_connected():
+            filename = f"quiz_{message.id}.mp3"
+            try:
+                success = await download_tts(text_to_speak, filename)
+                if success and os.path.exists(filename):
+                    if vc.is_playing():
+                        vc.stop()
+                    vc.play(discord.FFmpegPCMAudio(filename), after=lambda e: os.remove(filename) if os.path.exists(filename) else None)
+            except Exception as e:
+                print(f"Error in play_voice_task: {e}")
+                if os.path.exists(filename):
+                    try:
+                        os.remove(filename)
+                    except:
+                        pass
+
+    bot.loop.create_task(play_voice_task())
 
 # ════════════════════════════════════════════
 bot.run(TOKEN)
