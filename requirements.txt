@@ -3,3 +3,4 @@ PyNaCl
 python-dotenv
 pymongo
 certifi
+aiohttp

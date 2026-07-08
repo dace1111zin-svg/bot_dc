@@ -301,9 +301,18 @@ async function loadConfig() {
   const res = await apiRequest('/api/config');
   if (res) {
     state.config = res;
-    // Populate form fields
+    // Map of configuration keys to HTML input element IDs
+    const idMap = {
+      'STAY_VOICE_CHANNEL_ID': 'cfg-stay-voice',
+      'WELCOME_CHANNEL_ID': 'cfg-welcome',
+      'LEADERBOARD_CHANNEL_ID': 'cfg-leaderboard',
+      'CREATE_CHANNEL_ID': 'cfg-create-channel',
+      'PARENT_CATEGORY_ID': 'cfg-parent-category',
+      'AUTO_ROLE_ID': 'cfg-auto-role'
+    };
     for (const [key, value] of Object.entries(res)) {
-      const input = document.getElementById(`cfg-${key.toLowerCase().replace(/_/g, '-')}`);
+      const inputId = idMap[key];
+      const input = inputId ? document.getElementById(inputId) : null;
       if (input) {
         input.value = value;
       }

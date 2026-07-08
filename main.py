@@ -695,9 +695,21 @@ async def style_handler(request):
 async def app_js_handler(request):
     return web.FileResponse(os.path.join(os.path.dirname(__file__), 'dashboard', 'app.js'))
 
+@web.middleware
+async def cors_middleware(request, handler):
+    if request.method == "OPTIONS":
+        response = web.Response(status=200)
+    else:
+        response = await handler(request)
+    
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, PUT, DELETE'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+    return response
+
 # Start aiohttp server with dashboard configurations
 async def start_web_server():
-    app = web.Application()
+    app = web.Application(middlewares=[cors_middleware])
     
     # API endpoints
     app.router.add_post('/api/login', api_login)
