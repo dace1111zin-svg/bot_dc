@@ -1523,7 +1523,7 @@ class QuizView(discord.ui.View):
             try:
                 embed = self.message.embeds[0]
                 embed.description = embed.description.replace(
-                    "សូមចុចប៊ូតុងខាងក្រោមដើម្បីឆ្លើយ (មានពេល ១៥វិនាទី)៖",
+                    "សូមចុចប៊ូតុងខាងក្រោមដើម្បីឆ្លើយ (មានពេល ១៥វិនាទី)៖", 
                     "⌛ បិទការឆ្លើយសំណួរ!"
                 )
                 embed.description += summary_text
