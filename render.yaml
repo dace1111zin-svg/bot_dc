@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: bot-dc
+    env: docker
+    plan: free
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: MONGO_URL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
