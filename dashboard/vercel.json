@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://bot-dc-1-ygce.onrender.com/api/:path*"
+      "destination": "https://bot-dc-qky9.onrender.com/api/:path*"
     }
   ]
 }
