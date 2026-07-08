@@ -237,18 +237,31 @@ async def get_leaderboard_embed():
 async def get_balance(user_id):
     if money_col is None:
         return 1000
+    u_id_str = str(user_id)
     def run():
-        user = money_col.find_one({"user_id": user_id})
+        user = money_col.find_one({"user_id": u_id_str})
+        if not user:
+            # Fallback check for legacy integer key
+            user = money_col.find_one({"user_id": int(user_id)})
+            if user:
+                # Migrate to string key
+                money_col.update_one({"user_id": int(user_id)}, {"$set": {"user_id": u_id_str}})
         return user.get('balance', 1000) if user else 1000
     return await asyncio.to_thread(run)
 
 async def update_balance(user_id, amount):
     if money_col is None:
         return 1000
+    u_id_str = str(user_id)
     current_bal = await get_balance(user_id)
     new_bal     = current_bal + amount
     def run():
-        money_col.update_one({"user_id": user_id}, {"$set": {"balance": new_bal}}, upsert=True)
+        # Delete any legacy integer entries to prevent duplicate accounts
+        try:
+            money_col.delete_many({"user_id": int(user_id)})
+        except Exception:
+            pass
+        money_col.update_one({"user_id": u_id_str}, {"$set": {"balance": new_bal}}, upsert=True)
     await asyncio.to_thread(run)
     return new_bal
 
@@ -340,7 +353,7 @@ async def api_users(request):
     
     merged = {}
     for item in v_list:
-        uid = item.get("user_id")
+        uid = str(item.get("user_id")) if item.get("user_id") is not None else None
         if uid:
             merged[uid] = {
                 "user_id": uid,
@@ -350,7 +363,7 @@ async def api_users(request):
             }
             
     for item in m_list:
-        uid = item.get("user_id")
+        uid = str(item.get("user_id")) if item.get("user_id") is not None else None
         if uid:
             if uid not in merged:
                 merged[uid] = {
@@ -417,13 +430,21 @@ async def api_users_update(request):
         if money_col is None:
             return web.json_response({"error": "Database not connected"}, status=500)
         def run_money():
-            money_col.update_one({"user_id": user_id}, {"$set": {"balance": val_num}}, upsert=True)
+            try:
+                money_col.delete_many({"user_id": int(user_id)})
+            except Exception:
+                pass
+            money_col.update_one({"user_id": str(user_id)}, {"$set": {"balance": val_num}}, upsert=True)
         await asyncio.to_thread(run_money)
     else:
         if collection is None:
             return web.json_response({"error": "Database not connected"}, status=500)
         def run_voice():
-            collection.update_one({"user_id": user_id}, {"$set": {"total_seconds": val_num}}, upsert=True)
+            try:
+                collection.delete_many({"user_id": int(user_id)})
+            except Exception:
+                pass
+            collection.update_one({"user_id": str(user_id)}, {"$set": {"total_seconds": val_num}}, upsert=True)
         await asyncio.to_thread(run_voice)
         
     return web.json_response({"success": True})
@@ -1147,7 +1168,7 @@ async def me(ctx):
     def run():
         return list(collection.find().sort("total_seconds", -1))
     all_users = await asyncio.to_thread(run)
-    rank_pos  = next((i + 1 for i, d in enumerate(all_users) if d['user_id'] == u_id), None)
+    rank_pos  = next((i + 1 for i, d in enumerate(all_users) if str(d['user_id']) == str(u_id)), None)
     rank_str  = f"🏆 #{rank_pos}" if rank_pos else "—"
 
     embed = discord.Embed(
@@ -1256,7 +1277,7 @@ async def luyme(ctx):
     def run():
         return list(money_col.find().sort("balance", -1)) if money_col is not None else []
     all_users = await asyncio.to_thread(run)
-    rank      = next((i for i, u in enumerate(all_users, 1) if u['user_id'] == user_id), "N/A")
+    rank      = next((i for i, u in enumerate(all_users, 1) if str(u['user_id']) == str(user_id)), "N/A")
 
     embed = discord.Embed(color=0x5865F2)
     embed.set_author(name="📊 Balance & Rank Status", icon_url=ctx.author.display_avatar.url)
@@ -1276,7 +1297,11 @@ async def topluy(ctx):
     top = await asyncio.to_thread(run)
     leaderboard = ""
     for i, user in enumerate(top, 1):
-        u    = bot.get_user(user['user_id'])
+        try:
+            uid_int = int(user['user_id'])
+            u = bot.get_user(uid_int) or await bot.fetch_user(uid_int)
+        except Exception:
+            u = None
         name = u.display_name if u else f"User ID: {user['user_id']}"
         leaderboard += f"**{i}. {name}** — `${user['balance']:,}`\n"
     await ctx.send(embed=discord.Embed(
