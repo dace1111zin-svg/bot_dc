@@ -882,8 +882,8 @@ class KlaKloukView(discord.ui.View):
 @bot.event
 async def on_ready():
     print(f'✅ Bot Status: ONLINE ({bot.user.name})')
-    # Start web server for free-tier hosting pinging
-    bot.loop.create_task(start_web_server())
+    # Web server is now started concurrently at startup.
+    print("✅ [WEB SERVER] Operational.")
     if not afk_income.is_running():
         afk_income.start()
     if not auto_update_leaderboard.is_running():
@@ -1598,4 +1598,19 @@ async def quiz(ctx):
     bot.loop.create_task(play_voice_task())
 
 # ════════════════════════════════════════════
-bot.run(TOKEN)
+async def main():
+    # Start the web server first so that Render's health checks pass immediately
+    await start_web_server()
+    
+    # Start the bot
+    try:
+        async with bot:
+            await bot.start(TOKEN)
+    except Exception as e:
+        print(f"❌ [BOT STARTUP ERROR]: {e}")
+        # Keep the event loop running so the web server stays active
+        while True:
+            await asyncio.sleep(3600)
+
+if __name__ == '__main__':
+    asyncio.run(main())
