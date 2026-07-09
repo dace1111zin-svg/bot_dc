@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Nhoy Official - Premium Hub</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Leaflet Map CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Noto+Serif+Khmer:wght@400;700&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Outfit', 'sans-serif'], khmer: ['Noto Serif Khmer', 'serif'] },
+                    colors: {
+                        bg: '#050510',
+                        glass: 'rgba(255, 255, 255, 0.05)',
+                        primary: '#6366f1',
+                        accent: '#a855f7',
+                        success: '#10b981',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body { background-color: #050510; color: white; -webkit-tap-highlight-color: transparent; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: #050510; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .glass-nav {
+            background: rgba(15, 20, 35, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+        
+        .glass-card {
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.03) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        #mobile-menu { transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease; transform-origin: top center; }
+        .menu-hidden { transform: scaleY(0.95) translateY(-20px); opacity: 0; pointer-events: none; }
+        .menu-visible { transform: scaleY(1) translateY(0); opacity: 1; pointer-events: auto; }
+        
+        .menu-item.active { background: linear-gradient(90deg, rgba(99, 102, 241, 0.15) 0%, rgba(99, 102, 241, 0) 100%); border-left: 3px solid #6366f1; }
+        
+        .fade-in-up { animation: fadeInUp 0.5s ease-out forwards; opacity: 0; }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+        .nb-map-continent {
+            stroke: #050510;
+            stroke-width: 2px;
+            transition: all 0.2s ease;
+        }
+        .nb-map-continent.low {
+            fill: rgba(16, 185, 129, 0.15);
+            stroke: #10b981;
+        }
+        .nb-map-continent.mod {
+            fill: rgba(245, 158, 11, 0.15);
+            stroke: #f59e0b;
+        }
+        .nb-map-continent.high {
+            fill: rgba(239, 68, 68, 0.15);
+            stroke: #ef4444;
+        }
+
+        /* Profile markers on Leaflet */
+        .nb-profile-marker {
+            background: none;
+            border: none;
+        }
+        .nb-profile-marker-avatar {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            border: 3px solid #6366f1;
+            background: #ffffff;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s ease;
+        }
+        .nb-profile-marker-avatar.user-live {
+            border-color: #10b981;
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.6);
+        }
+        .nb-profile-marker-avatar:hover {
+            transform: scale(1.1) rotate(4deg);
+        }
+
+        .leaflet-popup-content-wrapper {
+            background: #0f1423 !important;
+            border: 1px solid rgba(255,255,255,0.1) !important;
+            border-radius: 12px !important;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5) !important;
+            font-family: 'Outfit', sans-serif !important;
+            color: #ffffff !important;
+        }
+        .leaflet-popup-tip {
+            background: #0f1423 !important;
+            border: 1px solid rgba(255,255,255,0.1) !important;
+        }
+    </style>
+</head>
+<body class="min-h-screen relative overflow-x-hidden selection:bg-primary selection:text-white flex flex-col">
+
+    <!-- Ambient Background -->
+    <div class="fixed inset-0 overflow-hidden pointer-events-none -z-10">
+        <div class="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-primary/20 rounded-full blur-[120px] opacity-40"></div>
+        <div class="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-accent/20 rounded-full blur-[120px] opacity-40"></div>
+        <div class="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 brightness-100 contrast-150"></div>
+    </div>
+
+    <!-- NAVIGATION -->
+    <nav class="fixed top-4 left-4 right-4 max-w-6xl mx-auto z-50">
+        <div class="glass-nav rounded-2xl h-16 flex items-center justify-between px-4 relative z-50">
+            <!-- LOGO (Secret Admin Login on 5 clicks) -->
+            <div class="flex items-center gap-3 cursor-pointer select-none" onclick="handleLogoClick()">
+                <div class="w-9 h-9 rounded-full bg-gradient-to-tr from-primary to-accent p-[2px]">
+                    <img src="https://i.pinimg.com/1200x/14/a1/71/14a171de882e567cc020668c691eba2d.jpg" class="w-full h-full rounded-full object-cover border border-black/50">
+                </div>
+                <div class="flex flex-col">
+                    <span class="text-white font-bold text-lg leading-none tracking-tight">Nhoy<span class="text-primary">Hub</span></span>
+                    <span class="text-[10px] text-gray-400 font-medium tracking-widest uppercase">Official Store</span>
+                </div>
+            </div>
+
+            <!-- Desktop Menu -->
+            <div class="hidden md:flex items-center gap-1 bg-white/5 rounded-xl p-1">
+                <button onclick="selectCategory('esign', this)" class="nav-btn-d px-5 py-2 rounded-lg text-sm font-medium transition-all bg-white/10 text-white shadow-sm">ESIGN</button>
+                <button onclick="selectCategory('ksign', this)" class="nav-btn-d px-5 py-2 rounded-lg text-sm font-medium text-gray-400 hover:text-white transition-all">Ksign</button>
+                <button onclick="selectCategory('roblox', this)" class="nav-btn-d px-5 py-2 rounded-lg text-sm font-medium text-gray-400 hover:text-white transition-all">Roblox</button>
+                <button onclick="selectCategory('troll', this)" class="nav-btn-d px-5 py-2 rounded-lg text-sm font-medium text-gray-400 hover:text-white transition-all">TrollStore</button>
+                
+                <div class="w-[1px] h-5 bg-white/10 mx-1"></div>
+                <a href="admin.html" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-400 hover:text-primary hover:bg-white/10 transition-all flex items-center justify-center">
+                    <i class="fa-solid fa-lock"></i>
+                </a>
+            </div>
+
+            <!-- Hamburger (Mobile) -->
+            <button onclick="toggleMenu()" class="md:hidden w-10 h-10 rounded-xl bg-white/5 border border-white/5 flex items-center justify-center text-white active:scale-95 transition-all">
+                <i id="menu-icon" class="fa-solid fa-bars-staggered text-lg"></i>
+            </button>
+        </div>
+
+        <!-- MOBILE MENU -->
+        <div id="mobile-menu" class="absolute top-[72px] left-0 right-0 glass-nav rounded-2xl p-2 flex flex-col gap-1 menu-hidden z-40 overflow-hidden md:hidden">
+            <button onclick="selectCategory('esign', this)" class="menu-item active w-full p-3 rounded-xl flex items-center gap-4 text-left transition-all group hover:bg-white/5">
+                <div class="w-11 h-11 rounded-xl overflow-hidden shadow-lg border border-white/10 shrink-0"><img src="https://esign-ios.app/wp-content/uploads/2025/06/Esign-300x300.webp" class="w-full h-full object-cover"></div>
+                <div><h3 class="font-bold text-white text-sm group-hover:text-blue-400 transition-colors">ESIGN Apps</h3><p class="text-[11px] text-gray-400">Sign IPAs without PC</p></div>
+                <i class="fa-solid fa-chevron-right ml-auto text-xs text-gray-600"></i>
+            </button>
+            <button onclick="selectCategory('ksign', this)" class="menu-item w-full p-3 rounded-xl flex items-center gap-4 text-left transition-all group hover:bg-white/5">
+                <div class="w-11 h-11 rounded-xl overflow-hidden shadow-lg border border-white/10 shrink-0"><img src="https://khoindvn.io.vn/img/pf/favicon.ico" class="w-full h-full object-cover"></div>
+                <div><h3 class="font-bold text-white text-sm group-hover:text-yellow-400 transition-colors">Ksign Certs</h3><p class="text-[11px] text-gray-400">Premium Certificates</p></div>
+                <i class="fa-solid fa-chevron-right ml-auto text-xs text-gray-600"></i>
+            </button>
+            <button onclick="selectCategory('roblox', this)" class="menu-item w-full p-3 rounded-xl flex items-center gap-4 text-left transition-all group hover:bg-white/5">
+                <div class="w-11 h-11 rounded-xl overflow-hidden shadow-lg border border-white/10 shrink-0"><img src="https://deltaios-executor.com/Icon.jpg" class="w-full h-full object-cover"></div>
+                <div><h3 class="font-bold text-white text-sm group-hover:text-purple-400 transition-colors">Roblox Executors</h3><p class="text-[11px] text-gray-400">Delta, Codex & Scripts</p></div>
+                <i class="fa-solid fa-chevron-right ml-auto text-xs text-gray-600"></i>
+            </button>
+            <button onclick="selectCategory('troll', this)" class="menu-item w-full p-3 rounded-xl flex items-center gap-4 text-left transition-all group hover:bg-white/5">
+                <div class="w-11 h-11 rounded-xl overflow-hidden shadow-lg border border-white/10 shrink-0"><img src="https://i.pinimg.com/474x/1c/d7/04/1cd7044b82d9ef32d1830008a262e747.jpg" class="w-full h-full object-cover"></div>
+                <div><h3 class="font-bold text-white text-sm group-hover:text-green-400 transition-colors">TrollStore</h3><p class="text-[11px] text-gray-400">Permanent Signing</p></div>
+                <i class="fa-solid fa-chevron-right ml-auto text-xs text-gray-600"></i>
+            </button>
+            
+            <div class="mt-2 pt-3 border-t border-white/5 flex gap-2">
+                <a href="https://t.me/nhoy200" target="_blank" class="flex-1 py-2.5 rounded-xl bg-[#229ED9]/10 text-[#229ED9] text-xs font-bold flex items-center justify-center gap-2 hover:bg-[#229ED9] hover:text-white transition-colors"><i class="fa-brands fa-telegram text-base"></i> Telegram</a>
+                <a href="https://www.youtube.com/@xai-qq" target="_blank" class="flex-1 py-2.5 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold flex items-center justify-center gap-2 hover:bg-red-500 hover:text-white transition-colors"><i class="fa-brands fa-youtube text-base"></i> Youtube</a>
+            </div>
+             <a href="admin_new.html" class="mt-2 w-full py-2.5 rounded-xl bg-white/5 text-gray-400 text-xs font-bold flex items-center justify-center gap-2 hover:bg-white/10 hover:text-white transition-colors">
+                <i class="fa-solid fa-lock"></i> Login 
+            </a>
+        </div>
+    </nav>
+
+    <!-- MAIN CONTENT -->
+    <main class="relative z-10 pt-32 pb-20 max-w-6xl mx-auto px-4 sm:px-6 flex-grow w-full">
+        
+        <!-- Hero Header -->
+        <div id="hero-header" class="text-center mb-10 fade-in-up">
+            <h1 class="text-4xl md:text-6xl font-bold tracking-tight mb-4 leading-tight">Premium <span class="text-transparent bg-clip-text bg-gradient-to-r from-primary via-purple-400 to-pink-500">iOS Tools</span></h1>
+            <p class="text-gray-400 text-sm md:text-lg max-w-xl mx-auto font-khmer leading-relaxed mb-6">ប្រភពទាញយក Esign, Ksign, TrollStore និង Roblox Executor ដោយឥតគិតថ្លៃ។</p>
+
+            <!-- View Counter -->
+            <div class="flex items-center justify-center gap-2 opacity-80">
+                <div class="flex items-center gap-2 bg-white/5 px-4 py-1.5 rounded-full border border-white/10 backdrop-blur-md">
+                    <span class="relative flex h-2 w-2">
+                      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                      <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                    </span>
+                    <span class="text-xs text-gray-400">Views:</span>
+                    <span id="view-counter" class="text-xs font-bold font-mono text-white">Loading...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Horizontal Filter Chips -->
+        <div class="flex overflow-x-auto gap-3 pb-2 mb-8 no-scrollbar snap-x">
+            <button onclick="selectCategory('esign', this)" class="chip-btn active snap-center shrink-0 pl-2 pr-6 py-2 rounded-full border border-white/10 text-sm font-bold whitespace-nowrap transition-all flex items-center gap-3 bg-white/10 text-white hover:bg-white/15">
+                <img src="https://esign-ios.app/wp-content/uploads/2025/06/Esign-300x300.webp" class="w-7 h-7 rounded-full border border-white/20"> ESIGN
+            </button>
+            <button onclick="selectCategory('ksign', this)" class="chip-btn snap-center shrink-0 pl-2 pr-6 py-2 rounded-full border border-white/10 text-sm font-bold whitespace-nowrap transition-all flex items-center gap-3 text-gray-400 hover:text-white hover:bg-white/5">
+                <img src="https://khoindvn.io.vn/img/pf/favicon.ico" class="w-7 h-7 rounded-full border border-white/20"> Ksign
+            </button>
+            <button onclick="selectCategory('roblox', this)" class="chip-btn snap-center shrink-0 pl-2 pr-6 py-2 rounded-full border border-white/10 text-sm font-bold whitespace-nowrap transition-all flex items-center gap-3 text-gray-400 hover:text-white hover:bg-white/5">
+                <img src="https://deltaios-executor.com/Icon.jpg" class="w-7 h-7 rounded-full border border-white/20"> Roblox
+            </button>
+            <button onclick="selectCategory('troll', this)" class="chip-btn snap-center shrink-0 pl-2 pr-6 py-2 rounded-full border border-white/10 text-sm font-bold whitespace-nowrap transition-all flex items-center gap-3 text-gray-400 hover:text-white hover:bg-white/5">
+                <img src="https://i.pinimg.com/474x/1c/d7/04/1cd7044b82d9ef32d1830008a262e747.jpg" class="w-7 h-7 rounded-full border border-white/20"> TrollStore
+            </button>
+        </div>
+
+        <!-- Grid Container -->
+        <div id="grid-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Cards will be injected here -->
+        </div>
+
+        <!-- Global Inflation Map Section -->
+        <div id="global-inflation-map-content" class="glass-card rounded-3xl p-6 md:p-8 mt-12 fade-in-up">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+                <div>
+                    <h2 class="text-2xl font-bold tracking-tight text-white flex items-center gap-2" id="map-section-title">
+                        <i class="fa-solid fa-globe text-primary animate-pulse"></i> Global Inflation Map
+                    </h2>
+                    <p class="text-gray-400 text-sm mt-1" id="map-section-subtitle">Interactive heatmap tracking CPI inflation rates across major global economies.</p>
+                </div>
+                <!-- Controls toggler -->
+                <div class="flex items-center gap-2 self-start md:self-auto">
+                    <button id="btn-world-map" class="text-xs font-mono bg-primary border border-white/10 px-2.5 py-1 rounded-lg text-white font-bold cursor-pointer" onclick="switchMap('world')">World Map</button>
+                    <button id="btn-cambodia-map" class="text-xs font-mono bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg text-gray-400 hover:text-white font-bold cursor-pointer" onclick="switchMap('cambodia')">Cambodia Map</button>
+                    <button id="btn-pin-me" class="text-xs font-mono bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-lg text-emerald-400 font-bold cursor-pointer hidden" onclick="openRegisterLocationModal()">📍 Pin Me</button>
+                </div>
+            </div>
+
+            <!-- Heatmap Visualization Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <!-- Map / Graphic Area -->
+                <div class="lg:col-span-2 bg-black/40 border border-white/5 rounded-2xl p-6 flex flex-col justify-center relative overflow-hidden min-h-[300px]">
+                    <div class="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10"></div>
+                    
+                    <div id="nb-map-tooltip" class="absolute top-4 left-4 bg-[#fffdeb] border border-black/20 text-black px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg pointer-events-none transition-opacity duration-150 opacity-0 z-20">Hover a region</div>
+
+                    <!-- SVG World Map -->
+                    <svg id="world-map-svg" viewBox="0 0 1000 500" class="w-full h-auto relative z-10" style="filter: drop-shadow(2px 2px 0px rgba(0,0,0,0.5));">
+                        <!-- Greenland -->
+                        <path d="M 420,40 L 480,30 L 460,90 L 410,80 Z" class="nb-map-continent low cursor-pointer" data-name="Greenland" data-val="1.5%" />
+                        
+                        <!-- North America -->
+                        <path d="M 120,90 L 320,70 L 370,140 L 340,240 L 290,240 L 270,180 L 160,180 Z" class="nb-map-continent low cursor-pointer" data-name="North America" data-val="2.4%" />
+                        
+                        <!-- South America -->
+                        <path d="M 290,250 L 340,250 L 390,300 L 350,420 L 310,470 L 290,420 Z" class="nb-map-continent high cursor-pointer" data-name="South America" data-val="8.7%" />
+                        
+                        <!-- Europe -->
+                        <path d="M 450,120 L 530,110 L 560,150 L 530,200 L 470,210 Z" class="nb-map-continent low cursor-pointer" data-name="Europe" data-val="1.9%" />
+                        
+                        <!-- Africa -->
+                        <path d="M 470,220 L 550,210 L 610,250 L 620,310 L 560,430 L 520,370 Z" class="nb-map-continent high cursor-pointer" data-name="Africa" data-val="12.5%" />
+                        
+                        <!-- Asia -->
+                        <path d="M 540,110 L 780,90 L 890,130 L 870,230 L 760,280 L 640,280 L 570,210 Z" class="nb-map-continent mod cursor-pointer" data-name="Asia Pacific" data-val="3.1%" />
+                        
+                        <!-- Australia -->
+                        <path d="M 780,350 L 860,340 L 880,390 L 820,420 Z" class="nb-map-continent mod cursor-pointer" data-name="Australia" data-val="2.8%" />
+                    </svg>
+
+                    <!-- Cambodia Map Container -->
+                    <div id="cambodia-map-container" style="width: 100%; height: 350px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); display: none; z-index: 10;"></div>
+
+                    <!-- Legend -->
+                    <div class="relative z-10 flex items-center justify-between border-t border-white/5 pt-4 mt-6 text-[10px] text-gray-400">
+                        <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-green-500/20 border border-green-500/50"></span> Low (&lt; 2%)</div>
+                        <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-yellow-500/20 border border-yellow-500/50"></span> Mod (2-5%)</div>
+                        <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-red-500/20 border border-red-500/50"></span> High (5-10%)</div>
+                    </div>
+                </div>
+
+                <!-- Country Leaderboard/Table Area -->
+                <div class="space-y-4">
+                    <h3 class="text-sm font-bold text-gray-400 uppercase tracking-wider">Inflation Highlights</h3>
+                    <div class="space-y-2.5">
+                        <!-- Item 1 -->
+                        <div class="flex items-center justify-between p-3.5 bg-white/5 border border-white/5 rounded-xl hover:border-white/10 transition">
+                            <div class="flex items-center gap-3">
+                                <span class="text-xl">🇺🇸</span>
+                                <div>
+                                    <h4 class="text-sm font-bold text-white leading-none">United States</h4>
+                                    <span class="text-[10px] text-gray-500">CPI (YoY)</span>
+                                </div>
+                            </div>
+                            <span class="text-sm font-bold text-green-400 font-mono">2.4%</span>
+                        </div>
+                        <!-- Item 2 -->
+                        <div class="flex items-center justify-between p-3.5 bg-white/5 border border-white/5 rounded-xl hover:border-white/10 transition">
+                            <div class="flex items-center gap-3">
+                                <span class="text-xl">🇪🇺</span>
+                                <div>
+                                    <h4 class="text-sm font-bold text-white leading-none">Euro Area</h4>
+                                    <span class="text-[10px] text-gray-500">CPI (YoY)</span>
+                                </div>
+                            </div>
+                            <span class="text-sm font-bold text-green-400 font-mono">1.9%</span>
+                        </div>
+                        <!-- Item 3 -->
+                        <div class="flex items-center justify-between p-3.5 bg-white/5 border border-white/5 rounded-xl hover:border-white/10 transition">
+                            <div class="flex items-center gap-3">
+                                <span class="text-xl">🇯🇵</span>
+                                <div>
+                                    <h4 class="text-sm font-bold text-white leading-none">Japan</h4>
+                                    <span class="text-[10px] text-gray-500">CPI (YoY)</span>
+                                </div>
+                            </div>
+                            <span class="text-sm font-bold text-green-400 font-mono">2.1%</span>
+                        </div>
+                        <!-- Item 4 -->
+                        <div class="flex items-center justify-between p-3.5 bg-white/5 border border-white/5 rounded-xl hover:border-white/10 transition">
+                            <div class="flex items-center gap-3">
+                                <span class="text-xl">🇰🇭</span>
+                                <div>
+                                    <h4 class="text-sm font-bold text-white leading-none">Cambodia</h4>
+                                    <span class="text-[10px] text-gray-500">CPI (YoY)</span>
+                                </div>
+                            </div>
+                            <span class="text-sm font-bold text-yellow-400 font-mono">3.2%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="relative z-10 border-t border-white/5 bg-black/40 backdrop-blur-xl pt-16 pb-8 mt-auto">
+        <div class="max-w-6xl mx-auto px-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-16">
+                <div class="space-y-4">
+                    <div class="flex items-center gap-2">
+                        <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-accent p-[1px]">
+                            <img src="https://i.pinimg.com/1200x/14/a1/71/14a171de882e567cc020668c691eba2d.jpg" class="w-full h-full rounded-full object-cover">
+                        </div>
+                        <span class="text-xl font-bold tracking-tight">Nhoy<span class="text-primary">Hub</span></span>
+                    </div>
+                    <p class="text-gray-400 text-sm leading-relaxed">Your source for esign, Trollstore, and other iOS utilities. Providing free downloads and resources for the community.</p>
+                </div>
+                <div>
+                    <h3 class="text-white font-bold mb-5 relative inline-block after:content-[''] after:absolute after:-bottom-1 after:left-0 after:w-8 after:h-0.5 after:bg-primary rounded-full">Quick Links</h3>
+                    <ul class="space-y-3 text-sm text-gray-400">
+                        <li><button onclick="resetView()" class="hover:text-primary transition-colors">Home</button></li>
+                        <li><button onclick="selectCategory('esign')" class="hover:text-primary transition-colors">ESIGN</button></li>
+                        <li><button onclick="selectCategory('roblox')" class="hover:text-primary transition-colors">Roblox Hack</button></li>
+                        <li><button onclick="selectCategory('troll')" class="hover:text-primary transition-colors">Troll Store</button></li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="text-white font-bold mb-5 relative inline-block after:content-[''] after:absolute after:-bottom-1 after:left-0 after:w-8 after:h-0.5 after:bg-primary rounded-full">Contact Us</h3>
+                    <div class="flex gap-3">
+                        <a href="https://t.me/nhoy200" target="_blank" class="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center text-[#229ED9] hover:bg-[#229ED9] hover:text-white transition-all border border-white/5"><i class="fa-brands fa-telegram text-lg"></i></a>
+                        <a href="https://www.youtube.com/@xai-qq" target="_blank" class="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center text-red-500 hover:bg-red-500 hover:text-white transition-all border border-white/5"><i class="fa-brands fa-youtube text-lg"></i></a>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-white font-bold mb-5 relative inline-block after:content-[''] after:absolute after:-bottom-1 after:left-0 after:w-8 after:h-0.5 after:bg-primary rounded-full">Language</h3>
+                    <div class="flex flex-col gap-3">
+                        <button class="flex items-center justify-between w-full px-4 py-3 rounded-xl bg-white/5 border border-primary/50 text-white text-sm font-medium"><span>English</span><i class="fa-solid fa-check text-primary"></i></button>
+                    </div>
+                </div>
+            </div>
+            <div class="border-t border-white/10 pt-8 text-center md:text-left"><p class="text-gray-500 text-xs">© 2025 Nhoy Official. All rights reserved.</p></div>
+        </div>
+    </footer>
+
+    <!-- LOCKER MODAL -->
+    <div id="locker-modal" class="fixed inset-0 z-[100] hidden">
+        <div class="absolute inset-0 bg-black/90 backdrop-blur-md transition-opacity duration-300 opacity-0" id="locker-backdrop"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div id="locker-content" class="w-full max-w-[400px] bg-[#0a0a0a] border border-white/10 rounded-3xl overflow-hidden shadow-2xl transform scale-95 opacity-0 transition-all duration-300 relative">
+                <div class="h-28 bg-gradient-to-br from-primary/20 via-purple-900/20 to-black flex items-center justify-center relative overflow-hidden">
+                    <div class="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-30"></div>
+                    <img id="locker-icon" src="" class="w-16 h-16 rounded-2xl border border-white/10 shadow-2xl z-10 object-cover bg-black/50">
+                    <button onclick="closeLocker()" class="absolute top-4 right-4 w-8 h-8 rounded-full bg-black/50 text-white/50 hover:text-white flex items-center justify-center z-20"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="p-6">
+                    <div class="text-center mb-6"><h3 class="text-xl font-bold text-white mb-1">Unlock Link</h3><p class="text-gray-400 text-xs">Complete steps to download <br> <span id="locker-app-name" class="text-primary font-bold">App Name</span></p></div>
+                    
+                    <!-- 2 Steps Visual -->
+                    <div class="relative flex justify-between mb-8 px-16">
+                        <div class="absolute top-1/2 left-0 w-full h-0.5 bg-white/10 -z-10"></div>
+                        <div id="dot-1" class="w-10 h-10 rounded-full bg-[#1a1a1a] text-gray-500 border border-white/10 flex items-center justify-center text-sm font-bold ring-4 ring-[#0a0a0a]">1</div>
+                        <div id="dot-2" class="w-10 h-10 rounded-full bg-[#1a1a1a] text-gray-500 border border-white/10 flex items-center justify-center text-sm font-bold ring-4 ring-[#0a0a0a]"><i class="fa-solid fa-lock text-xs"></i></div>
+                    </div>
+                    
+                    <div id="action-area" class="space-y-3"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+        const API_URL = "https://nhoy-store.onrender.com/api"; 
+        
+        // --- HARDCODED DATA ---
+        const HardcodedData = {
+            esign: [
+                { title: "Esign Pro", version: "v5.0", status: "Signed", color: "text-green-400", img: "https://esign-ios.app/wp-content/uploads/2025/06/Esign-300x300.webp", desc: "No Revoke • 1 Year", link: "https://api.khoindvn.eu.org/k1Ycos" },
+                { title: "Esign Plus", version: "v4.8", status: "Signed", color: "text-green-400", img: "https://esign-ios.app/wp-content/uploads/2025/06/Esign-300x300.webp", desc: "Stable Certificate", link: "https://api.khoindvn.io.vn/jA06Dp" },
+                { title: "Esign Pro", version: "v5.0", status: "Signed", color: "text-green-400", img: "https://esign-ios.app/wp-content/uploads/2025/06/Esign-300x300.webp", desc: "No Revoke • 1 Year", link: "https://api.khoindvn.io.vn/SUvkkC" },
+                { title: "Esign Plus", version: "v4.8", status: "Signed", color: "text-green-400", img: "https://esign-ios.app/wp-content/uploads/2025/06/Esign-300x300.webp", desc: "Stable Certificate", link: "https://api.khoindvn.io.vn/qylEe1" },
+            ],
+            ksign: [
+                { title: "Ksign VIP", version: "Max", status: "Work", color: "text-yellow-400", img: "https://khoindvn.io.vn/img/pf/favicon.ico", desc: "Premium Cert", link: "https://api.khoindvn.io.vn/WAF9IA" },
+                { title: "Ksign VIP", version: "Max", status: "Work", color: "text-yellow-400", img: "https://khoindvn.io.vn/img/pf/favicon.ico", desc: "Premium Cert", link: "https://api.khoindvn.io.vn/5PwyVy" },
+                { title: "Ksign VIP", version: "Max", status: "Work", color: "text-yellow-400", img: "https://khoindvn.io.vn/img/pf/favicon.ico", desc: "Premium Cert", link: "https://api.khoindvn.io.vn/7wr6sg" },
+                { title: "Ksign VIP", version: "Max", status: "Work", color: "text-yellow-400", img: "https://khoindvn.io.vn/img/pf/favicon.ico", desc: "Premium Cert", link: "https://api.khoindvn.io.vn/D6q5cE" },
+            ],
+            roblox: [
+                { title: "Delta Executor", version: "v2.645", status: "Updated", color: "text-purple-400", img: "https://deltaios-executor.com/Icon.jpg", desc: "Keyless • No Crash", link: "itms-services://?action=download-manifest&url=https%3A%2F%2Fdeltaios-executor.com%2FInstall21.plist" },
+                { title: "Krnl Executor", version: "v2.645", status: "Updated", color: "text-purple-400", img: "https://krnl-ios.com/unnamed.png", desc: "Keyless • No Crash", link: "itms-services://?action=download-manifest&url=https://krnl-ios.com/Install2.plist" }
+            ],
+            troll: [
+                { title: "TrollStore ", version: "Perm", status: "System", color: "text-blue-400", img: "https://i.pinimg.com/474x/1c/d7/04/1cd7044b82d9ef32d1830008a262e747.jpg", desc: "iOS 15 - 17.0", link: "https://github.com/JJTech0130/TrollRestore/releases/download/1.0/TrollRestore.exe" },
+                { title: "Certificate-Khoindvn ", version: "Perm", status: "System", color: "text-blue-400", img: "https://esign-ios.app/wp-content/uploads/2025/06/Esign-300x300.webp", desc: "Spp all Phone", link: "https://github.com/esigncert/khoindvn/raw/refs/heads/main/document/DNS/Certs-Khoindvn.zip" },
+            ]
+        };
+
+        // --- GLOBAL VARIABLES ---
+        let DB = JSON.parse(JSON.stringify(HardcodedData)); 
+        let currentCategory = 'esign';
+        let isMenuOpen = false;
+        let isLockerActive = true; // Default locked
+
+        // --- STARTUP ---
+        window.onload = () => {
+            renderCards('esign');
+            fetchAdminApps();
+            incrementViews();
+            checkLockerStatus(); // Check if Admin disabled the locker
+        };
+
+        // --- LOCKER STATUS CHECK ---
+        async function checkLockerStatus() {
+            try {
+                const res = await fetch(`${API_URL}/admin/setting/locker`);
+                const data = await res.json();
+                if(data && typeof data.enabled !== 'undefined') {
+                    isLockerActive = data.enabled;
+                }
+            } catch(e) {
+                // If API fails, default to true (Safe mode)
+                isLockerActive = true;
+            }
+        }
+
+        // --- FETCH & MERGE DATA ---
+        async function fetchAdminApps() {
+            try {
+                const response = await fetch(`${API_URL}/apps`);
+                const adminApps = await response.json();
+                adminApps.forEach(app => {
+                    if(DB[app.category]) DB[app.category].unshift(app);
+                });
+                renderCards(currentCategory);
+            } catch (error) { console.log("Offline mode"); }
+        }
+
+        function incrementViews() {
+            const counterElement = document.getElementById('view-counter');
+            fetch(`${API_URL}/visit`, { method: 'POST' })
+            .then(response => response.json())
+            .then(data => { if(counterElement && data.count) counterElement.innerText = data.count.toLocaleString(); })
+            .catch(() => { counterElement.innerText = "Offline"; });
+        }
+
+        // --- UI FUNCTIONS ---
+        const menu = document.getElementById('mobile-menu');
+        const menuIcon = document.getElementById('menu-icon');
+        function toggleMenu() {
+            isMenuOpen = !isMenuOpen;
+            if(isMenuOpen) { menu.classList.remove('menu-hidden'); menu.classList.add('menu-visible'); menuIcon.classList.replace('fa-bars-staggered', 'fa-xmark'); } 
+            else { menu.classList.remove('menu-visible'); menu.classList.add('menu-hidden'); menuIcon.classList.replace('fa-xmark', 'fa-bars-staggered'); }
+        }
+
+        function selectCategory(cat, btnElement) {
+            currentCategory = cat;
+            renderCards(cat);
+            document.querySelectorAll('.menu-item').forEach(b => b.classList.remove('active'));
+            if(btnElement && btnElement.classList.contains('menu-item')) btnElement.classList.add('active');
+            if(btnElement && btnElement.classList.contains('nav-btn-d')) {
+                document.querySelectorAll('.nav-btn-d').forEach(b => b.className = "nav-btn-d px-5 py-2 rounded-lg text-sm font-medium text-gray-400 hover:text-white transition-all");
+                btnElement.className = "nav-btn-d px-5 py-2 rounded-lg text-sm font-medium transition-all bg-white/10 text-white shadow-sm";
+            }
+            document.querySelectorAll('.chip-btn').forEach(b => {
+                b.className = "chip-btn snap-center shrink-0 pl-2 pr-6 py-2 rounded-full border border-white/10 text-sm font-bold whitespace-nowrap transition-all flex items-center gap-3 text-gray-400 hover:text-white hover:bg-white/5";
+                if(b.innerText.toLowerCase().includes(cat === 'troll' ? 'trollstore' : cat) || (cat === 'esign' && b.innerText.includes('ESIGN'))) {
+                    b.className = "chip-btn active snap-center shrink-0 pl-2 pr-6 py-2 rounded-full border border-white/10 text-sm font-bold whitespace-nowrap transition-all flex items-center gap-3 bg-white/10 text-white hover:bg-white/15";
+                }
+            });
+            if(isMenuOpen) toggleMenu();
+        }
+
+        function renderCards(cat) {
+            const container = document.getElementById('grid-container');
+            const items = DB[cat] || [];
+            container.innerHTML = '';
+            
+            if(items.length === 0) { container.innerHTML = `<div class="col-span-full text-center py-20 text-gray-500">No items available.</div>`; return; }
+
+            items.forEach((item, index) => {
+                const card = document.createElement('div');
+                card.className = `glass-card rounded-2xl p-3 flex items-center gap-4 relative group overflow-hidden fade-in-up hover:border-primary/50 transition duration-300`;
+                card.style.animationDelay = `${index * 50}ms`;
+                
+                card.innerHTML = `
+                    <div class="relative w-14 h-14 shrink-0 rounded-xl overflow-hidden shadow-lg border border-white/10">
+                        <img src="${item.img}" class="w-full h-full object-cover transform group-hover:scale-110 transition duration-500">
+                    </div>
+                    <div class="flex-1 min-w-0 flex flex-col justify-center">
+                        <div class="flex items-center gap-2 mb-0.5">
+                            <h3 class="text-base font-bold text-white leading-none">${item.title}</h3>
+                            <span class="text-[9px] px-1.5 py-0.5 rounded bg-white/10 ${item.color} border border-white/5 whitespace-nowrap">${item.status}</span>
+                        </div>
+                        <p class="text-xs text-gray-400 font-khmer truncate">${item.desc}</p>
+                        <span class="text-[10px] text-gray-500 font-mono mt-1">${item.version}</span>
+                    </div>
+                    <button onclick="handleDownloadClick('${item.link}', '${item.title}', '${item.img}')" class="w-10 h-10 rounded-full bg-white/5 text-primary border border-white/10 flex items-center justify-center hover:bg-primary hover:text-white transition-all shadow-lg shrink-0">
+                        <i class="fa-solid fa-download text-sm"></i>
+                    </button>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // --- LOCKER LOGIC ---
+        let currentLink = ''; let currentAppImg = ''; let currentTask = '';
+        const modal = document.getElementById('locker-modal');
+        const backdrop = document.getElementById('locker-backdrop');
+        const content = document.getElementById('locker-content');
+        const actionArea = document.getElementById('action-area');
+        const lockerIcon = document.getElementById('locker-icon');
+        
+        // ** Decide: Direct Download OR Show Locker **
+        function handleDownloadClick(link, title, img) {
+            if (isLockerActive) {
+                openLocker(link, title, img);
+            } else {
+                window.open(link, '_blank');
+            }
+        }
+
+        function openLocker(link, title, img) { 
+            currentLink = link; currentAppImg = img; 
+            document.getElementById('locker-app-name').innerText = title; 
+            
+            // Randomly choose task (50/50 chance)
+            currentTask = Math.random() < 0.5 ? 'youtube' : 'telegram';
+
+            modal.classList.remove('hidden'); 
+            setTimeout(() => { backdrop.classList.remove('opacity-0'); content.classList.remove('opacity-0', 'scale-95'); content.classList.add('scale-100'); }, 10); 
+            showStep(1); 
+        }
+        
+        function closeLocker() { 
+            backdrop.classList.add('opacity-0'); content.classList.remove('scale-100'); content.classList.add('opacity-0', 'scale-95'); 
+            setTimeout(() => modal.classList.add('hidden'), 300); 
+        }
+        
+        function showStep(step) {
+            const d1 = document.getElementById('dot-1'); 
+            const d2 = document.getElementById('dot-2'); 
+            [d1, d2].forEach(d => { d.className = "w-10 h-10 rounded-full bg-[#1a1a1a] text-gray-500 border border-white/10 flex items-center justify-center text-sm font-bold ring-4 ring-[#0a0a0a] transition-all"; });
+            d2.innerHTML = '<i class="fa-solid fa-lock text-xs"></i>';
+
+            if(step === 1) { 
+                d1.className = "w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center text-sm font-bold ring-4 ring-primary/20 transition-all shadow-[0_0_15px_rgba(99,102,241,0.5)]"; d1.innerHTML = "1"; 
+                
+                // Show Dynamic Task Button
+                if(currentTask === 'youtube') {
+                    lockerIcon.src = "https://upload.wikimedia.org/wikipedia/commons/0/09/YouTube_full-color_icon_%282017%29.svg"; 
+                    actionArea.innerHTML = `<button onclick="processStep(1)" class="w-full py-3 rounded-xl bg-gradient-to-r from-red-600 to-red-500 text-white font-bold hover:shadow-lg hover:shadow-red-500/30 transition flex items-center justify-center gap-2 group"><i class="fa-brands fa-youtube group-hover:scale-110 transition"></i> Subscribe Channel</button>`; 
+                } else {
+                    lockerIcon.src = "https://upload.wikimedia.org/wikipedia/commons/8/82/Telegram_logo.svg"; 
+                    actionArea.innerHTML = `<button onclick="processStep(1)" class="w-full py-3 rounded-xl bg-gradient-to-r from-blue-500 to-blue-400 text-white font-bold hover:shadow-lg hover:shadow-blue-500/30 transition flex items-center justify-center gap-2 group"><i class="fa-brands fa-telegram group-hover:scale-110 transition"></i> Join Telegram</button>`; 
+                }
+            }
+            else if (step === 2) { 
+                lockerIcon.src = currentAppImg; 
+                d1.className = "w-10 h-10 rounded-full bg-emerald-500 text-black flex items-center justify-center text-sm font-bold ring-4 ring-[#0a0a0a]"; d1.innerHTML = '<i class="fa-solid fa-check"></i>'; 
+                d2.className = "w-10 h-10 rounded-full bg-white text-black flex items-center justify-center text-sm font-bold ring-4 ring-white/20 shadow-[0_0_20px_rgba(255,255,255,0.3)]"; d2.innerHTML = '<i class="fa-solid fa-unlock"></i>'; 
+                actionArea.innerHTML = `<a href="${currentLink}" target="_blank" class="w-full py-3 rounded-xl bg-gradient-to-r from-primary to-accent text-white font-bold hover:scale-[1.02] transition flex items-center justify-center gap-2 shadow-xl shadow-primary/30"><i class="fa-solid fa-cloud-arrow-down"></i> Download Now</a>`; 
+            }
+        }
+        
+        function processStep(step) { 
+            const btn = actionArea.querySelector('button'); btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Checking...'; 
+            if(step === 1) {
+                if(currentTask === 'youtube') window.open('https://www.youtube.com/@xai-qq?si=uPsNoogH7OaNU__O', '_blank'); 
+                else window.open('https://t.me/nhoy200', '_blank'); 
+            }
+            setTimeout(() => showStep(step + 1), 3000); 
+        }
+        
+        function resetView() { window.scrollTo({top: 0, behavior: 'smooth'}); selectCategory('esign'); }
+
+        // --- SECRET ADMIN LOGIN ---
+        let logoClickCount = 0; let logoClickTimer;
+        function handleLogoClick() {
+            clearTimeout(logoClickTimer); logoClickCount++;
+            if (logoClickCount === 5) {
+                document.querySelector('.glass-nav img').style.filter = "hue-rotate(90deg)";
+                setTimeout(() => window.location.href = 'admin.html', 300); logoClickCount = 0;
+            } else {
+                logoClickTimer = setTimeout(() => { if(logoClickCount === 1) resetView(); logoClickCount = 0; }, 400);
+            }
+        }
+
+        // --- MAP SWITCHER & GEOLOCATION ---
+        let cambodiaMapInitialized = false;
+        let cambodiaMap = null;
+        let cambodiaMarkers = [];
+        let selectedLocUserId = null;
+
+        function openRegisterLocationModal() {
+            const modal = document.getElementById('registerLocationOverlay');
+            const backdrop = document.getElementById('loc-backdrop');
+            const content = document.getElementById('loc-content');
+            
+            document.getElementById('searchLocUser').value = '';
+            document.getElementById('locSearchResults').style.display = 'none';
+            document.getElementById('selectedLocUserBox').style.display = 'none';
+            document.getElementById('btn-confirm-loc').disabled = true;
+            document.getElementById('loc-status-msg').textContent = '';
+            selectedLocUserId = null;
+
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                backdrop.classList.remove('opacity-0');
+                content.classList.remove('opacity-0', 'scale-95');
+                content.classList.add('scale-100');
+            }, 10);
+        }
+
+        function closeRegisterLocationModal() {
+            const modal = document.getElementById('registerLocationOverlay');
+            const backdrop = document.getElementById('loc-backdrop');
+            const content = document.getElementById('loc-content');
+            
+            backdrop.classList.add('opacity-0');
+            content.classList.remove('scale-100');
+            content.classList.add('opacity-0', 'scale-95');
+            setTimeout(() => modal.classList.add('hidden'), 300);
+        }
+
+        async function searchLocUsers() {
+            const q = document.getElementById('searchLocUser').value.trim();
+            const resultsBox = document.getElementById('locSearchResults');
+            if (!q) {
+                resultsBox.style.display = 'none';
+                return;
+            }
+            
+            try {
+                const res = await fetch(`/api/public/search?q=${encodeURIComponent(q)}`);
+                const data = await res.json();
+                if (data && data.results && data.results.length > 0) {
+                    resultsBox.innerHTML = '';
+                    data.results.forEach(user => {
+                        const div = document.createElement('div');
+                        div.className = 'flex items-center gap-3 p-2 hover:bg-white/5 cursor-pointer border-b border-white/5';
+                        div.innerHTML = `
+                            <img src="${user.avatar_url}" class="w-6 h-6 rounded-full border border-white/10">
+                            <span class="text-xs text-gray-200 font-semibold">${user.display_name}</span>
+                        `;
+                        div.onclick = () => {
+                            selectedLocUserId = user.user_id;
+                            document.getElementById('selectedLocAvatar').src = user.avatar_url;
+                            document.getElementById('selectedLocName').textContent = user.display_name;
+                            document.getElementById('selectedLocUserBox').style.display = 'flex';
+                            document.getElementById('btn-confirm-loc').disabled = false;
+                            resultsBox.style.display = 'none';
+                        };
+                        resultsBox.appendChild(div);
+                    });
+                    resultsBox.style.display = 'block';
+                } else {
+                    resultsBox.innerHTML = '<div class="p-3 text-xs text-gray-500 text-center">No users found</div>';
+                    resultsBox.style.display = 'block';
+                }
+            } catch (err) {
+                console.error("Search users error:", err);
+            }
+        }
+
+        function submitUserLocation() {
+            if (!selectedLocUserId) return;
+            const msg = document.getElementById('loc-status-msg');
+            msg.textContent = 'Requesting browser location permission...';
+            
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(async (position) => {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    msg.textContent = 'Saving position to server...';
+                    
+                    try {
+                        const res = await fetch('/api/public/update_location', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                user_id: selectedLocUserId,
+                                latitude: lat,
+                                longitude: lng
+                            })
+                        });
+                        const data = await res.json();
+                        if (data && data.success) {
+                            msg.textContent = 'Location saved and pinned! 🎉';
+                            setTimeout(() => {
+                                closeRegisterLocationModal();
+                                plotRealUsers();
+                            }, 1200);
+                        } else {
+                            msg.textContent = 'Failed to save location.';
+                        }
+                    } catch (err) {
+                        msg.textContent = 'Error sending request to server.';
+                        console.error(err);
+                    }
+                }, (err) => {
+                    msg.textContent = 'Permission denied or tracking error.';
+                    console.warn(err);
+                });
+            } else {
+                msg.textContent = 'Geolocation is not supported by your browser.';
+            }
+        }
+
+        function plotMockUsers() {
+            if (!cambodiaMap) return;
+            cambodiaMarkers.forEach(m => cambodiaMap.removeLayer(m));
+            cambodiaMarkers = [];
+
+            const mockUsers = [
+                { name: "Sokha", rank: 1, app: "ESigned Pro", avatar: "https://i.pravatar.cc/100?img=33", coords: [11.5564, 104.9282], city: "Phnom Penh" },
+                { name: "Bory", rank: 2, app: "Roblox Mod Menu", avatar: "https://i.pravatar.cc/100?img=12", coords: [13.3671, 103.8448], city: "Siem Reap" },
+                { name: "Channa", rank: 3, app: "TrollStore Helper", avatar: "https://i.pravatar.cc/100?img=47", coords: [10.6253, 103.5234], city: "Sihanoukville" }
+            ];
+
+            mockUsers.forEach(user => {
+                const profileIcon = L.divIcon({
+                    className: 'nb-profile-marker',
+                    html: `<div class="nb-profile-marker-avatar" style="border-color: #a855f7;"><img src="${user.avatar}" style="width:100%; height:100%; object-fit:cover; border-radius:50%;"></div>`,
+                    iconSize: [42, 42],
+                    iconAnchor: [21, 42]
+                });
+
+                const marker = L.marker(user.coords, { icon: profileIcon }).addTo(cambodiaMap);
+                marker.bindPopup(`<b>${user.name}</b><br>Active User in ${user.city}<br>Downloaded: <b>${user.app}</b>`);
+                cambodiaMarkers.push(marker);
+            });
+        }
+
+        async function plotRealUsers() {
+            if (!cambodiaMap) return;
+            cambodiaMarkers.forEach(m => cambodiaMap.removeLayer(m));
+            cambodiaMarkers = [];
+            
+            try {
+                const res = await fetch('/api/public/locations');
+                const data = await res.json();
+                
+                if (data && data.locations && data.locations.length > 0) {
+                    data.locations.forEach(user => {
+                        const profileIcon = L.divIcon({
+                            className: 'nb-profile-marker',
+                            html: `<div class="nb-profile-marker-avatar" style="border-color: #a855f7;"><img src="${user.avatar_url}" style="width:100%; height:100%; object-fit:cover; border-radius:50%;"></div>`,
+                            iconSize: [42, 42],
+                            iconAnchor: [21, 42]
+                        });
+                        
+                        const marker = L.marker([user.latitude, user.longitude], { icon: profileIcon }).addTo(cambodiaMap);
+                        marker.bindPopup(`<b>${user.name}</b><br>Real location pinned successfully!📍`);
+                        cambodiaMarkers.push(marker);
+                    });
+                } else {
+                    plotMockUsers();
+                }
+            } catch (err) {
+                console.error("Plot real locations error:", err);
+                plotMockUsers();
+            }
+        }
+
+        function switchMap(type) {
+            const worldBtn = document.getElementById('btn-world-map');
+            const cambodiaBtn = document.getElementById('btn-cambodia-map');
+            const pinMeBtn = document.getElementById('btn-pin-me');
+            const worldSvg = document.getElementById('world-map-svg');
+            const cambodiaContainer = document.getElementById('cambodia-map-container');
+            const title = document.getElementById('map-section-title');
+            const subtitle = document.getElementById('map-section-subtitle');
+            const tooltip = document.getElementById('nb-map-tooltip');
+            
+            if (type === 'world') {
+                worldBtn.className = 'text-xs font-mono bg-primary border border-white/10 px-2.5 py-1 rounded-lg text-white font-bold cursor-pointer';
+                cambodiaBtn.className = 'text-xs font-mono bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg text-gray-400 hover:text-white font-bold cursor-pointer';
+                if (pinMeBtn) pinMeBtn.classList.add('hidden');
+                
+                worldSvg.style.display = 'block';
+                cambodiaContainer.style.display = 'none';
+                
+                title.innerHTML = '<i class="fa-solid fa-globe text-primary animate-pulse"></i> Global Inflation Map';
+                subtitle.textContent = 'Interactive heatmap tracking CPI inflation rates across major global economies.';
+            } else {
+                cambodiaBtn.className = 'text-xs font-mono bg-primary border border-white/10 px-2.5 py-1 rounded-lg text-white font-bold cursor-pointer';
+                worldBtn.className = 'text-xs font-mono bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg text-gray-400 hover:text-white font-bold cursor-pointer';
+                if (pinMeBtn) pinMeBtn.classList.remove('hidden');
+                
+                worldSvg.style.display = 'none';
+                cambodiaContainer.style.display = 'block';
+                if (tooltip) tooltip.classList.add('opacity-0');
+                
+                title.innerHTML = '🇰🇭 Cambodia District & User Locator';
+                subtitle.textContent = 'Locate provinces, districts (ស្រុក), and track user positions in real-time.';
+                
+                if (!cambodiaMapInitialized) {
+                    cambodiaMapInitialized = true;
+                    setTimeout(() => {
+                        cambodiaMap = L.map('cambodia-map-container').setView([12.5657, 104.9910], 8);
+                        
+                        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                            maxZoom: 18,
+                            attribution: '© OpenStreetMap contributors'
+                        }).addTo(cambodiaMap);
+                        
+                        // Plot real users
+                        plotRealUsers();
+                        
+                        // Track user location
+                        if (navigator.geolocation) {
+                            navigator.geolocation.getCurrentPosition((position) => {
+                                const lat = position.coords.latitude;
+                                const lng = position.coords.longitude;
+                                
+                                const liveIcon = L.divIcon({
+                                    className: 'nb-profile-marker',
+                                    html: `<div class="nb-profile-marker-avatar user-live"><img src="https://i.pinimg.com/1200x/14/a1/71/14a171de882e567cc020668c691eba2d.jpg" style="width:100%; height:100%; object-fit:cover;"></div>`,
+                                    iconSize: [42, 42],
+                                    iconAnchor: [21, 42]
+                                });
+                                
+                                const userMarker = L.marker([lat, lng], { icon: liveIcon }).addTo(cambodiaMap);
+                                userMarker.bindPopup("<b>You (Captured Location)</b><br>Welcome to Cambodia!").openPopup();
+                                
+                                cambodiaMap.setView([lat, lng], 12);
+                            }, (err) => {
+                                console.warn("Geolocation permission error:", err);
+                            });
+                        }
+                    }, 100);
+                } else {
+                    plotRealUsers();
+                    setTimeout(() => cambodiaMap.invalidateSize(), 50);
+                }
+            }
+        }
+
+        // --- MAP HOVER LISTENERS ---
+        document.querySelectorAll('.nb-map-continent').forEach(el => {
+            el.addEventListener('mouseover', (e) => {
+                const tooltip = document.getElementById('nb-map-tooltip');
+                if (tooltip) {
+                    tooltip.textContent = `${e.target.dataset.name}: ${e.target.dataset.val}`;
+                    tooltip.classList.remove('opacity-0');
+                    tooltip.classList.add('opacity-100');
+                }
+            });
+            el.addEventListener('mouseout', () => {
+                const tooltip = document.getElementById('nb-map-tooltip');
+                if (tooltip) {
+                    tooltip.classList.remove('opacity-100');
+                    tooltip.classList.add('opacity-0');
+                }
+            });
+        });
+    </script>
+
+    <!-- REGISTER LOCATION MODAL -->
+    <div id="registerLocationOverlay" class="fixed inset-0 z-[100] hidden flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/90 backdrop-blur-md transition-opacity duration-300 opacity-0" id="loc-backdrop" onclick="closeRegisterLocationModal()"></div>
+        <div class="w-full max-w-[400px] bg-[#0a0a0a] border border-white/10 rounded-3xl overflow-hidden shadow-2xl p-6 relative transform scale-95 opacity-0 transition-all duration-300 z-10" id="loc-content">
+            <button onclick="closeRegisterLocationModal()" class="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/5 text-white/50 hover:text-white flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+            
+            <h3 class="text-xl font-bold text-white mb-2 flex items-center gap-2">📍 Pin Your Location</h3>
+            <p class="text-gray-400 text-xs mb-6">Search your Discord account to pin your coordinates to the Cambodia map.</p>
+            
+            <div id="loc-step-1" class="space-y-4">
+                <div>
+                    <label class="text-xs text-gray-400 block mb-2">Search Discord Username</label>
+                    <input type="text" id="searchLocUser" placeholder="Type username..." oninput="searchLocUsers()" class="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:border-primary focus:outline-none transition">
+                </div>
+                
+                <div id="locSearchResults" class="max-h-[140px] overflow-y-auto border border-white/10 rounded-xl hidden bg-black/80"></div>
+                
+                <div id="selectedLocUserBox" class="hidden items-center gap-3 p-3 bg-white/5 border border-white/10 rounded-xl">
+                    <img id="selectedLocAvatar" src="" class="w-8 h-8 rounded-full border border-white/10">
+                    <div>
+                        <strong id="selectedLocName" class="text-sm text-white block">Username</strong>
+                        <span class="text-[10px] text-gray-500">Selected Account</span>
+                    </div>
+                </div>
+                
+                <button class="w-full py-3 rounded-xl bg-gradient-to-r from-primary to-accent text-white font-bold hover:scale-[1.02] disabled:opacity-50 disabled:scale-100 disabled:pointer-events-none transition" id="btn-confirm-loc" disabled onclick="submitUserLocation()">Pin My Location 📍</button>
+            </div>
+            <div id="loc-status-msg" class="mt-4 text-xs font-bold text-primary text-center min-h-[16px]"></div>
+        </div>
+    </div>
+</body>
+</html>

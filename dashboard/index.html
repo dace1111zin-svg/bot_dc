@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 
@@ -38,11 +39,32 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
         </button>
       </form>
+      <div class="auth-divider">
+        <span>OR</span>
+      </div>
+      <button type="button" id="btn-view-public" class="btn btn-secondary btn-block">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path><path d="M10 14.66V17c0 .55-.45 1-1 1H4v2h16v-2h-5c-.55 0-1-.45-1-1v-2.34"></path><path d="M12 2a7 7 0 0 0-7 7c0 2.58 1.37 4.83 3.5 6.06h7c2.13-1.23 3.5-3.48 3.5-6.06a7 7 0 0 0-7-7z"></path></svg>
+        <span>View Public Leaderboards</span>
+      </button>
     </div>
   </div>
 
   <!-- ================= DASHBOARD APP ================= -->
   <div id="dashboard-app" class="dashboard-wrapper hidden">
+    
+    <!-- Mobile Topbar -->
+    <div class="mobile-topbar">
+      <button id="mobile-menu-toggle" class="mobile-toggle-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24" style="width: 24px; height: 24px;"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+      </button>
+      <div class="mobile-brand">
+        <h2>Bot Control</h2>
+      </div>
+      <button type="button" id="btn-goto-login-topbar" class="btn btn-secondary btn-goto-login-topbar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+        <span>Admin Login</span>
+      </button>
+    </div>
     
     <!-- Sidebar -->
     <aside class="sidebar">
@@ -74,6 +96,18 @@
             <a href="#settings" class="nav-link" data-tab="settings">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
               <span>Bot Settings</span>
+            </a>
+          </li>
+          <li>
+            <a href="#leaderboards" class="nav-link" data-tab="leaderboards">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path><path d="M10 14.66V17c0 .55-.45 1-1 1H4v2h16v-2h-5c-.55 0-1-.45-1-1v-2.34"></path><path d="M12 2a7 7 0 0 0-7 7c0 2.58 1.37 4.83 3.5 6.06h7c2.13-1.23 3.5-3.48 3.5-6.06a7 7 0 0 0-7-7z"></path></svg>
+              <span>Leaderboards</span>
+            </a>
+          </li>
+          <li class="public-only-link">
+            <a href="#login" class="nav-link public-only-link" id="nav-goto-login">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+              <span>Admin Login</span>
             </a>
           </li>
           <li>
@@ -425,6 +459,225 @@
               </div>
             </div>
           </div>
+        </section>
+
+        <!-- ================= LEADERBOARDS TAB ================= -->
+        <section id="tab-leaderboards" class="tab-pane">
+          <!-- Hero Section (Sketch: Text + Cyberpunk Glowing Portal Illustration) -->
+          <div class="leaderboard-banner">
+            <div class="banner-text">
+              <span class="banner-badge">TEMPERATURE SYSTEM</span>
+              <h1>TEMPERATURE VOICE LEADERBOARD</h1>
+              <p>Track voice activity, compete with friends, and climb the leaderboard. Unlock monthly Discord Nitro rewards and earn legendary voice profile badges!</p>
+              <div class="banner-buttons">
+                <a href="#leaderboard-split-view" class="btn btn-primary">
+                  <span>View Leaderboard</span>
+                </a>
+                <a href="https://discord.gg/invitelink" target="_blank" class="btn-discord">
+                  <svg viewBox="0 0 127.14 96.36" fill="currentColor" width="18" height="18"><path d="M107.7,8.07A105.15,105.15,0,0,0,77.26,0a77.2,77.2,0,0,0-3.3,6.83A96.67,96.67,0,0,0,53.22,6.83,77.2,77.2,0,0,0,49.88,0,105.15,105.15,0,0,0,19.44,8.07C3.66,31.58-1.86,54.65,1,77.53A105.73,105.73,0,0,0,32,96.36a77.7,77.7,0,0,0,6.63-10.85,68.43,68.43,0,0,1-10.5-5c.87-.64,1.71-1.32,2.51-2a75.46,75.46,0,0,0,73.08,0c.8,0.7,1.64,1.38,2.51,2a68.43,68.43,0,0,1-10.5,5A77.7,77.7,0,0,0,95.14,85.5a105.73,105.73,0,0,0,31-18.83C129,54.65,123.5,31.58,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53S36.18,40.36,42.45,40.36,53.83,46,53.83,53,48.72,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.24,60,73.24,53S78.41,40.36,84.69,40.36,96.07,46,96.07,53,91,65.69,84.69,65.69Z"/></svg>
+                  <span>Join Discord</span>
+                </a>
+              </div>
+            </div>
+            <div class="banner-image banner-portal-wrapper">
+              <div class="cyber-portal">
+                <div class="portal-ring ring-1"></div>
+                <div class="portal-ring ring-2"></div>
+                <div class="portal-ring ring-3"></div>
+                <div class="portal-core"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Statistics Cards Grid (Display 6 premium cards) -->
+          <div class="gaming-stats-grid">
+            <div class="gaming-stat-card glow-green">
+              <div class="card-glow"></div>
+              <div class="stat-icon">👥</div>
+              <div class="stat-info">
+                <span class="stat-label">Total Members</span>
+                <h2 class="stat-value" id="game-stat-members">--</h2>
+              </div>
+            </div>
+            <div class="gaming-stat-card glow-purple">
+              <div class="card-glow"></div>
+              <div class="stat-icon">🎤</div>
+              <div class="stat-info">
+                <span class="stat-label">Active Voice Users</span>
+                <h2 class="stat-value" id="game-stat-active">--</h2>
+              </div>
+            </div>
+            <div class="gaming-stat-card glow-cyan">
+              <div class="card-glow"></div>
+              <div class="stat-icon">⏱</div>
+              <div class="stat-info">
+                <span class="stat-label">Total Voice Hours</span>
+                <h2 class="stat-value" id="game-stat-hours">--</h2>
+              </div>
+            </div>
+            <div class="gaming-stat-card glow-amber">
+              <div class="card-glow"></div>
+              <div class="stat-icon">🔥</div>
+              <div class="stat-info">
+                <span class="stat-label">Daily Activity</span>
+                <h2 class="stat-value" id="game-stat-activity">94%</h2>
+              </div>
+            </div>
+            <div class="gaming-stat-card glow-green">
+              <div class="card-glow"></div>
+              <div class="stat-icon">🏆</div>
+              <div class="stat-info">
+                <span class="stat-label">Top Champion</span>
+                <h2 class="stat-value" id="game-stat-champ">--</h2>
+              </div>
+            </div>
+            <div class="gaming-stat-card glow-purple">
+              <div class="card-glow"></div>
+              <div class="stat-icon">📈</div>
+              <div class="stat-info">
+                <span class="stat-label">Weekly Growth</span>
+                <h2 class="stat-value" id="game-stat-growth">+12.4%</h2>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab Pill Selector -->
+          <div class="leaderboard-pills-nav">
+            <button class="leaderboard-pill active" data-type="voice">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              <span>Top Time</span>
+            </button>
+            <button class="leaderboard-pill" data-type="economy">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+              <span>Top Money</span>
+            </button>
+            <button class="leaderboard-pill" data-type="quiz">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+              <span>IQ Quiz</span>
+            </button>
+          </div>
+
+          <!-- Split Layout (Ranks list on left, showcase on right) -->
+          <div class="leaderboard-split-layout" id="leaderboard-split-view">
+            <div class="leaderboard-pane-card list-pane">
+              <div class="pane-header">
+                <h3>📜 TOP CONTENDERS</h3>
+              </div>
+              <div class="pane-content" id="leaderboard-list-pane">
+                <div class="leaderboard-loading"><div class="spinner"></div></div>
+              </div>
+            </div>
+            <div class="leaderboard-pane-card champion-showcase-pane" id="leaderboard-champion-pane">
+              <div class="leaderboard-loading"><div class="spinner"></div></div>
+            </div>
+          </div>
+
+          <!-- Charts Section -->
+          <div class="gaming-charts-section">
+            <div class="chart-card">
+              <div class="chart-header">
+                <h3>🎙️ Community Voice Activity trends (7 Days)</h3>
+                <p>Interactive graph showing voice room active times across the server.</p>
+              </div>
+              <div class="chart-container">
+                <canvas id="voice-activity-chart"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recent Activity Feed -->
+          <div class="gaming-feed-section">
+            <div class="feed-card">
+              <div class="feed-header">
+                <h3>⚡ Live Community Activity Feed</h3>
+                <span class="live-indicator"><span class="pulse-dot"></span> LIVE</span>
+              </div>
+              <div class="feed-list" id="simulated-activities-feed">
+                <!-- Log updates are populated here -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Rewards Section -->
+          <div class="gaming-rewards-section">
+            <div class="section-title">
+              <h2>🎁 Premium Community Rewards</h2>
+              <p>Compete in call durations and claim exclusive monthly server roles and prizes.</p>
+            </div>
+            <div class="rewards-grid">
+              <div class="reward-card glow-green">
+                <div class="reward-tag">TOP MONTHLY</div>
+                <div class="reward-icon">👑</div>
+                <h3>Top Voice Master</h3>
+                <p>Discord Nitro Classic (1 Month) + Special "Server VIP" Role & Badge.</p>
+              </div>
+              <div class="reward-card glow-purple">
+                <div class="reward-tag">WEEKLY</div>
+                <div class="reward-icon">⭐</div>
+                <h3>Weekly Champion</h3>
+                <p>50,000 Kla Klouk Coins + Server Profile Highlight for 7 Days.</p>
+              </div>
+              <div class="reward-card glow-cyan">
+                <div class="reward-tag">QUIZ MASTER</div>
+                <div class="reward-icon">🧠</div>
+                <h3>Daily IQ Winner</h3>
+                <p>Special "Quiz Master" Role + Double XP Boost in chat games.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Achievement Badges Section -->
+          <div class="gaming-achievements-section">
+            <div class="section-title">
+              <h2>🏆 Unlockable Badges & Achievements</h2>
+              <p>Stay active in voice chats and text games to unlock server achievements.</p>
+            </div>
+            <div class="badges-grid">
+              <div class="badge-item unlocked">
+                <div class="badge-icon">🥉</div>
+                <h4>100 Hours</h4>
+                <span class="badge-status">Unlocked</span>
+              </div>
+              <div class="badge-item unlocked">
+                <div class="badge-icon">🥈</div>
+                <h4>500 Hours</h4>
+                <span class="badge-status">Unlocked</span>
+              </div>
+              <div class="badge-item locked">
+                <div class="badge-icon">🥇</div>
+                <h4>1000 Hours</h4>
+                <span class="badge-status">Locked</span>
+              </div>
+              <div class="badge-item locked">
+                <div class="badge-icon">👑</div>
+                <h4>Voice King</h4>
+                <span class="badge-status">Locked</span>
+              </div>
+              <div class="badge-item unlocked">
+                <div class="badge-icon">⚡</div>
+                <h4>Active Gamer</h4>
+                <span class="badge-status">Unlocked</span>
+              </div>
+              <div class="badge-item locked">
+                <div class="badge-icon">📜</div>
+                <h4>Quiz Legend</h4>
+                <span class="badge-status">Locked</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <footer class="gaming-footer">
+            <div class="footer-links">
+              <a href="https://discord.gg/invitelink" target="_blank">Join Discord</a>
+              <a href="#privacy">Privacy Policy</a>
+              <a href="#support">Contact Support</a>
+              <a href="#github">GitHub</a>
+            </div>
+            <div class="footer-copyright">
+              <p>&copy; 2026 Temperature Voice System. All Rights Reserved. Crafted with love for gamers.</p>
+            </div>
+          </footer>
         </section>
 
       </div>

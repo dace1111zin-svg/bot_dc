@@ -30,11 +30,14 @@ try:
     db           = mongo_client['discord_bot']
     collection   = db['voice_activity']   # សម្រាប់ស្ទង់ម៉ោង Voice
     money_col    = db['users']            # សម្រាប់លុយ Kla Klouk
+    quiz_col     = db['quiz_scores']       # សម្រាប់ពិន្ទុ IQ Quiz
     print("✅ [DATABASE] Connected successfully!")
 except Exception as e:
     print(f"❌ [DATABASE] Error: {e}")
+    db         = None
     collection = None
     money_col  = None
+    quiz_col   = None
 
 # ════════════════════════════════════════════
 # 🔵 2. CONFIGURATION (IDs)
@@ -355,9 +358,18 @@ async def api_users(request):
     for item in v_list:
         uid = str(item.get("user_id")) if item.get("user_id") is not None else None
         if uid:
+            sec = item.get("total_seconds", 0)
+            is_active = uid in active_sessions
+            active_since = 0
+            if is_active:
+                active_since = active_sessions[uid]
+                sec += (time.time() - active_since)
+                
             merged[uid] = {
                 "user_id": uid,
-                "total_seconds": item.get("total_seconds", 0),
+                "total_seconds": sec,
+                "is_active": is_active,
+                "active_since": active_since,
                 "first_join": item.get("first_join", "Unknown"),
                 "balance": 1000
             }
@@ -369,6 +381,8 @@ async def api_users(request):
                 merged[uid] = {
                     "user_id": uid,
                     "total_seconds": 0,
+                    "is_active": false,
+                    "active_since": 0,
                     "first_join": "Unknown",
                     "balance": 1000
                 }
@@ -418,7 +432,7 @@ async def api_users_update(request):
     field = data.get("field")
     value = data.get("value")
     
-    if not user_id or field not in ("balance", "total_seconds") or value is None:
+    if not user_id or field not in ("balance", "total_seconds", "correct_answers") or value is None:
         return web.json_response({"error": "Missing or invalid fields"}, status=400)
         
     try:
@@ -436,7 +450,7 @@ async def api_users_update(request):
                 pass
             money_col.update_one({"user_id": str(user_id)}, {"$set": {"balance": val_num}}, upsert=True)
         await asyncio.to_thread(run_money)
-    else:
+    elif field == "total_seconds":
         if collection is None:
             return web.json_response({"error": "Database not connected"}, status=500)
         def run_voice():
@@ -446,8 +460,57 @@ async def api_users_update(request):
                 pass
             collection.update_one({"user_id": str(user_id)}, {"$set": {"total_seconds": val_num}}, upsert=True)
         await asyncio.to_thread(run_voice)
+    elif field == "correct_answers":
+        if quiz_col is None:
+            return web.json_response({"error": "Database not connected"}, status=500)
+        def run_quiz():
+            try:
+                quiz_col.delete_many({"user_id": int(user_id)})
+            except Exception:
+                pass
+            quiz_col.update_one({"user_id": str(user_id)}, {"$set": {"correct_answers": val_num}}, upsert=True)
+        await asyncio.to_thread(run_quiz)
         
     return web.json_response({"success": True})
+
+# User deletion endpoint
+@auth_required
+async def api_users_delete(request):
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+        
+    user_id = data.get("user_id")
+    category = data.get("category")
+    
+    if not user_id or not category:
+        return web.json_response({"error": "Missing user_id or category"}, status=400)
+        
+    if category == "time":
+        if collection is None:
+            return web.json_response({"error": "Database not connected"}, status=500)
+        def run_voice():
+            collection.delete_many({"user_id": str(user_id)})
+            collection.delete_many({"user_id": int(user_id)})
+        await asyncio.to_thread(run_voice)
+    elif category == "money":
+        if money_col is None:
+            return web.json_response({"error": "Database not connected"}, status=500)
+        def run_money():
+            money_col.delete_many({"user_id": str(user_id)})
+            money_col.delete_many({"user_id": int(user_id)})
+        await asyncio.to_thread(run_money)
+    elif category == "iq":
+        if quiz_col is None:
+            return web.json_response({"error": "Database not connected"}, status=500)
+        def run_quiz():
+            quiz_col.delete_many({"user_id": str(user_id)})
+            quiz_col.delete_many({"user_id": int(user_id)})
+        await asyncio.to_thread(run_quiz)
+        
+    return web.json_response({"success": True})
+
 
 # Configuration getters/setters
 @auth_required
@@ -552,17 +615,20 @@ async def api_broadcast(request):
 # Public Leaderboards endpoint
 async def api_public_leaderboards(request):
     def run_query():
-        v_list = list(collection.find().sort("total_seconds", -1).limit(50)) if collection is not None else []
-        m_list = list(money_col.find().sort("balance", -1).limit(50)) if money_col is not None else []
-        return v_list, m_list
+        v_list = list(collection.find().sort("total_seconds", -1).limit(20)) if collection is not None else []
+        m_list = list(money_col.find().sort("balance", -1).limit(20)) if money_col is not None else []
+        q_list = list(quiz_col.find().sort("correct_answers", -1).limit(20)) if quiz_col is not None else []
+        return v_list, m_list, q_list
 
-    v_list, m_list = await asyncio.to_thread(run_query)
+    v_list, m_list, q_list = await asyncio.to_thread(run_query)
     
     uids = set()
     for item in v_list:
-        if item.get("user_id"): uids.add(item["user_id"])
+        if item.get("user_id"): uids.add(str(item["user_id"]))
     for item in m_list:
-        if item.get("user_id"): uids.add(item["user_id"])
+        if item.get("user_id"): uids.add(str(item["user_id"]))
+    for item in q_list:
+        if item.get("user_id"): uids.add(str(item["user_id"]))
         
     user_details = {}
     for uid in uids:
@@ -575,6 +641,9 @@ async def api_public_leaderboards(request):
                     if member:
                         discord_user = member
                         break
+            # Trigger API fetch fallback if user not cached locally
+            if not discord_user:
+                discord_user = await bot.fetch_user(uid_int)
         except Exception:
             discord_user = None
             
@@ -589,11 +658,21 @@ async def api_public_leaderboards(request):
         
     voice_leaderboard = []
     for item in v_list:
-        uid = item.get("user_id")
+        uid = str(item.get("user_id"))
         details = user_details.get(uid, {"username": f"User {uid}", "display_name": f"User {uid}", "avatar_url": "https://cdn.discordapp.com/embed/avatars/0.png"})
+        
+        sec = item.get("total_seconds", 0)
+        is_active = uid in active_sessions
+        active_since = 0
+        if is_active:
+            active_since = active_sessions[uid]
+            sec += (time.time() - active_since)
+            
         voice_leaderboard.append({
             "user_id": uid,
-            "total_seconds": item.get("total_seconds", 0),
+            "total_seconds": sec,
+            "is_active": is_active,
+            "active_since": active_since,
             "first_join": item.get("first_join", "Unknown"),
             "username": details["username"],
             "display_name": details["display_name"],
@@ -602,7 +681,7 @@ async def api_public_leaderboards(request):
         
     economy_leaderboard = []
     for item in m_list:
-        uid = item.get("user_id")
+        uid = str(item.get("user_id"))
         details = user_details.get(uid, {"username": f"User {uid}", "display_name": f"User {uid}", "avatar_url": "https://cdn.discordapp.com/embed/avatars/0.png"})
         economy_leaderboard.append({
             "user_id": uid,
@@ -611,10 +690,23 @@ async def api_public_leaderboards(request):
             "display_name": details["display_name"],
             "avatar_url": details["avatar_url"]
         })
+
+    quiz_leaderboard = []
+    for item in q_list:
+        uid = str(item.get("user_id"))
+        details = user_details.get(uid, {"username": f"User {uid}", "display_name": f"User {uid}", "avatar_url": "https://cdn.discordapp.com/embed/avatars/0.png"})
+        quiz_leaderboard.append({
+            "user_id": uid,
+            "correct_answers": item.get("correct_answers", 0),
+            "username": details["username"],
+            "display_name": details["display_name"],
+            "avatar_url": details["avatar_url"]
+        })
         
     return web.json_response({
         "voice": voice_leaderboard,
-        "economy": economy_leaderboard
+        "economy": economy_leaderboard,
+        "quiz": quiz_leaderboard
     })
 
 # Public Search endpoint
@@ -706,15 +798,152 @@ async def api_public_search(request):
     results.sort(key=lambda x: x.get("total_seconds", 0), reverse=True)
     return web.json_response({"results": results})
 
+async def api_public_locations(request):
+    if db is None:
+        return web.json_response({"error": "Database not connected"}, status=500)
+    def run():
+        loc_col = db['user_locations']
+        
+        # Get all user IDs currently in the leaderboard rankings
+        uids = set()
+        if collection is not None:
+            for r in collection.find().sort("total_seconds", -1).limit(20):
+                if r.get("user_id"): uids.add(str(r["user_id"]))
+        if money_col is not None:
+            for r in money_col.find().sort("balance", -1).limit(20):
+                if r.get("user_id"): uids.add(str(r["user_id"]))
+        if quiz_col is not None:
+            for r in quiz_col.find().sort("correct_answers", -1).limit(20):
+                if r.get("user_id"): uids.add(str(r["user_id"]))
+                
+        # Main Cambodia hub coordinate centers
+        CITIES = [
+            (11.5564, 104.9282), # Phnom Penh
+            (13.3671, 103.8448), # Siem Reap
+            (13.0957, 103.2022), # Battambang
+            (10.6253, 103.5234), # Sihanoukville
+            (11.9934, 105.4633), # Kampong Cham
+            (10.6095, 104.1802), # Kampot
+            (12.5222, 106.0167), # Kratie
+            (13.7925, 106.9731), # Banlung
+            (11.5232, 102.9733), # Koh Kong
+            (12.2496, 104.6782), # Kampong Chhnang
+            (12.5333, 103.9167)  # Pursat
+        ]
+        
+        for uid in uids:
+            existing = loc_col.find_one({"user_id": uid})
+            if not existing:
+                try:
+                    uid_int = int(uid)
+                    discord_user = bot.get_user(uid_int)
+                    if not discord_user:
+                        for guild in bot.guilds:
+                            member = guild.get_member(uid_int)
+                            if member:
+                                discord_user = member
+                                break
+                    if not discord_user:
+                        # Attempt async fetch run synchronously in executor or set default
+                        name = f"User {uid}"
+                        avatar_url = "https://cdn.discordapp.com/embed/avatars/0.png"
+                    else:
+                        name = discord_user.display_name
+                        avatar_url = str(discord_user.display_avatar.url)
+                except Exception:
+                    name = f"User {uid}"
+                    avatar_url = "https://cdn.discordapp.com/embed/avatars/0.png"
+                
+                # Assign randomized coordinates around one of the hubs
+                base_lat, base_lng = random.choice(CITIES)
+                lat_offset = random.uniform(-0.06, 0.06)
+                lng_offset = random.uniform(-0.06, 0.06)
+                
+                loc_col.update_one(
+                    {"user_id": uid},
+                    {"$set": {
+                        "name": name,
+                        "avatar_url": avatar_url,
+                        "latitude": base_lat + lat_offset,
+                        "longitude": base_lng + lng_offset,
+                        "updated_at": datetime.now().isoformat()
+                    }},
+                    upsert=True
+                )
+                
+        return list(loc_col.find({}, {"_id": 0}))
+    locs = await asyncio.to_thread(run)
+    return web.json_response({"locations": locs})
+
+async def api_public_update_location(request):
+    if db is None:
+        return web.json_response({"error": "Database not connected"}, status=500)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+        
+    user_id = data.get("user_id")
+    lat = data.get("latitude")
+    lng = data.get("longitude")
+    
+    if not user_id or lat is None or lng is None:
+        return web.json_response({"error": "Missing fields"}, status=400)
+        
+    try:
+        uid_int = int(user_id)
+        member = None
+        for guild in bot.guilds:
+            member = guild.get_member(uid_int)
+            if member:
+                break
+        if not member:
+            member = await bot.fetch_user(uid_int)
+            
+        name = member.display_name if member else f"User {user_id}"
+        avatar_url = str(member.display_avatar.url) if member else "https://cdn.discordapp.com/embed/avatars/0.png"
+    except Exception:
+        name = f"User {user_id}"
+        avatar_url = "https://cdn.discordapp.com/embed/avatars/0.png"
+        
+    def run():
+        col = db['user_locations']
+        col.update_one(
+            {"user_id": str(user_id)},
+            {"$set": {
+                "name": name,
+                "avatar_url": avatar_url,
+                "latitude": float(lat),
+                "longitude": float(lng),
+                "updated_at": datetime.now().isoformat()
+            }},
+            upsert=True
+        )
+    await asyncio.to_thread(run)
+    return web.json_response({"success": True, "name": name, "avatar_url": avatar_url})
+
+
 # Static file serving handlers
 async def index_handler(request):
-    return web.FileResponse(os.path.join(os.path.dirname(__file__), 'dashboard', 'index.html'))
+    res = web.FileResponse(os.path.join(os.path.dirname(__file__), 'dashboard', 'leaderboard.html'))
+    res.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    res.headers['Pragma'] = 'no-cache'
+    res.headers['Expires'] = '0'
+    return res
 
 async def style_handler(request):
-    return web.FileResponse(os.path.join(os.path.dirname(__file__), 'dashboard', 'style.css'))
+    res = web.FileResponse(os.path.join(os.path.dirname(__file__), 'dashboard', 'style.css'))
+    res.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    res.headers['Pragma'] = 'no-cache'
+    res.headers['Expires'] = '0'
+    return res
 
 async def app_js_handler(request):
-    return web.FileResponse(os.path.join(os.path.dirname(__file__), 'dashboard', 'app.js'))
+    res = web.FileResponse(os.path.join(os.path.dirname(__file__), 'dashboard', 'app.js'))
+    res.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    res.headers['Pragma'] = 'no-cache'
+    res.headers['Expires'] = '0'
+    return res
 
 @web.middleware
 async def cors_middleware(request, handler):
@@ -737,9 +966,12 @@ async def start_web_server():
     app.router.add_get('/api/verify', api_verify)
     app.router.add_get('/api/public/leaderboards', api_public_leaderboards)
     app.router.add_get('/api/public/search', api_public_search)
+    app.router.add_get('/api/public/locations', api_public_locations)
+    app.router.add_post('/api/public/update_location', api_public_update_location)
     app.router.add_get('/api/stats', api_stats)
     app.router.add_get('/api/users', api_users)
     app.router.add_post('/api/users/update', api_users_update)
+    app.router.add_post('/api/users/delete', api_users_delete)
     app.router.add_get('/api/config', api_config_get)
     app.router.add_post('/api/config', api_config_set)
     app.router.add_get('/api/channels', api_channels_get)
@@ -1516,6 +1748,15 @@ class QuizView(discord.ui.View):
 
         # ៤. ផ្ញើសារឆ្លើយតបជាលក្ខណៈឯកជន (Ephemeral)
         if is_correct:
+            if quiz_col is not None:
+                def save_score():
+                    quiz_col.update_one(
+                        {"user_id": str(user_id)},
+                        {"$inc": {"correct_answers": 1}, "$set": {"username": interaction.user.name}},
+                        upsert=True
+                    )
+                bot.loop.create_task(asyncio.to_thread(save_score))
+
             await interaction.response.send_message(
                 content=f"🎉 ល្អណាស់ **{interaction.user.display_name}**! អ្នកឆ្លើយបានត្រឹមត្រូវហើយ! 🎯",
                 ephemeral=True
