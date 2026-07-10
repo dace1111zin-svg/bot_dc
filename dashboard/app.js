@@ -91,12 +91,14 @@ async function checkAuth() {
 }
 
 function showLoginPage() {
+  document.body.classList.remove('public-mode');
   document.getElementById('login-page').classList.remove('hidden');
   document.getElementById('dashboard-app').classList.add('hidden');
   stopStatsPolling();
 }
 
 function showDashboard() {
+  document.body.classList.remove('public-mode');
   document.getElementById('login-page').classList.add('hidden');
   document.getElementById('dashboard-app').classList.remove('hidden');
   
@@ -141,6 +143,13 @@ async function updateStats() {
   document.getElementById('stat-active-voice').textContent = stats.active_voice;
   document.getElementById('stat-currency').textContent = `$${stats.total_balance_circulation.toLocaleString()}`;
 
+  // Cyberpunk gaming stats cards
+  const gameMembers = document.getElementById('game-stat-members');
+  if (gameMembers) gameMembers.textContent = stats.total_members.toLocaleString();
+  
+  const gameActive = document.getElementById('game-stat-active');
+  if (gameActive) gameActive.textContent = stats.active_voice.toLocaleString();
+
   // Database indicators
   const dbBadge = document.getElementById('db-status');
   if (stats.db_connected) {
@@ -166,6 +175,12 @@ async function updateStats() {
 function switchTab(tabId) {
   state.currentTab = tabId;
   
+  // Close mobile sidebar menu if open
+  const sidebarEl = document.querySelector('.sidebar');
+  if (sidebarEl) {
+    sidebarEl.classList.remove('active');
+  }
+  
   // Update Navigation active classes
   document.querySelectorAll('.nav-link').forEach(link => {
     if (link.getAttribute('data-tab') === tabId) {
@@ -187,6 +202,8 @@ function switchTab(tabId) {
   // Action triggers based on active tab
   if (tabId === 'users') {
     loadUsers();
+  } else if (tabId === 'leaderboards') {
+    loadLeaderboards();
   }
 }
 
@@ -419,6 +436,10 @@ function updateEmbedPreview() {
 // ==================== DOM EVENT LISTENERS ====================
 document.addEventListener('DOMContentLoaded', () => {
   checkAuth();
+  
+  // Initialize gaming page graphics and feeds
+  initCharts();
+  startSimulatedFeed();
 
   // Password toggle
   document.getElementById('toggle-password').addEventListener('click', function() {
@@ -444,6 +465,58 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast('Authentication failed. Invalid password.', 'error');
     }
   });
+
+  // View Public Leaderboards click
+  document.getElementById('btn-view-public').addEventListener('click', () => {
+    document.body.classList.add('public-mode');
+    document.getElementById('login-page').classList.add('hidden');
+    document.getElementById('dashboard-app').classList.remove('hidden');
+    switchTab('leaderboards');
+  });
+
+  // Topbar Admin Login click (Visible in Public Mode)
+  const topbarLoginBtn = document.getElementById('btn-goto-login-topbar');
+  if (topbarLoginBtn) {
+    topbarLoginBtn.addEventListener('click', () => {
+      showLoginPage();
+    });
+  }
+
+  // Sidebar Goto Login click (Visible in Public Mode)
+  const gotoLoginLink = document.getElementById('nav-goto-login');
+  if (gotoLoginLink) {
+    gotoLoginLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      showLoginPage();
+    });
+  }
+
+  // Leaderboard Pill Tabs navigation
+  document.querySelectorAll('.leaderboard-pill').forEach(pill => {
+    pill.addEventListener('click', function() {
+      document.querySelectorAll('.leaderboard-pill').forEach(p => p.classList.remove('active'));
+      this.classList.add('active');
+      const type = this.getAttribute('data-type');
+      state.activeLeaderboardType = type;
+      renderActiveLeaderboard(type);
+    });
+  });
+
+  // Mobile menu toggle click
+  const menuToggle = document.getElementById('mobile-menu-toggle');
+  const sidebar = document.querySelector('.sidebar');
+  if (menuToggle && sidebar) {
+    menuToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sidebar.classList.toggle('active');
+    });
+    // Click outside sidebar on mobile should close it
+    document.addEventListener('click', (e) => {
+      if (sidebar.classList.contains('active') && !sidebar.contains(e.target) && e.target !== menuToggle) {
+        sidebar.classList.remove('active');
+      }
+    });
+  }
 
   // Navigation click
   document.querySelectorAll('.nav-link').forEach(link => {
@@ -635,4 +708,286 @@ function isValidUrl(string) {
   } catch (_) {
     return false;  
   }
+}
+
+// ==================== LEADERBOARDS ACTIONS ====================
+function formatVoiceTime(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return `${h}h ${m}m`;
+}
+
+async function loadLeaderboards() {
+  const listPane = document.getElementById('leaderboard-list-pane');
+  const champPane = document.getElementById('leaderboard-champion-pane');
+
+  // Show loading spinner
+  const spinnerHtml = '<div class="leaderboard-loading"><div class="spinner"></div></div>';
+  listPane.innerHTML = spinnerHtml;
+  champPane.innerHTML = spinnerHtml;
+
+  try {
+    const res = await apiRequest('/api/public/leaderboards', 'GET');
+    if (!res) {
+      const errorHtml = '<div style="padding: 20px; text-align: center; color: var(--text-muted)">Failed to load data</div>';
+      listPane.innerHTML = errorHtml;
+      champPane.innerHTML = errorHtml;
+      return;
+    }
+
+    // Cache the data
+    state.leaderboardData = res;
+    
+    // Bind dynamic values for Cyberpunk stats cards
+    if (res.voice && res.voice.length > 0) {
+      // 1. Top Champion Name
+      const topChampEl = document.getElementById('game-stat-champ');
+      if (topChampEl) topChampEl.textContent = `@${res.voice[0].username}`;
+
+      // 2. Sum of all voice hours
+      const totalSec = res.voice.reduce((sum, u) => sum + (u.total_seconds || 0), 0);
+      const totalHrs = Math.round(totalSec / 3600);
+      const gameHoursEl = document.getElementById('game-stat-hours');
+      if (gameHoursEl) gameHoursEl.textContent = `${totalHrs.toLocaleString()}h`;
+    }
+    
+    // Render current active tab (default to voice)
+    if (!state.activeLeaderboardType) {
+      state.activeLeaderboardType = 'voice';
+    }
+    renderActiveLeaderboard(state.activeLeaderboardType);
+
+  } catch (err) {
+    console.error('Error loading leaderboards:', err);
+    const errorHtml = '<div style="padding: 20px; text-align: center; color: var(--text-muted)">Connection Error</div>';
+    listPane.innerHTML = errorHtml;
+    champPane.innerHTML = errorHtml;
+  }
+}
+
+function renderActiveLeaderboard(type) {
+  const listPane = document.getElementById('leaderboard-list-pane');
+  const champPane = document.getElementById('leaderboard-champion-pane');
+  
+  if (!state.leaderboardData) return;
+  
+  const data = state.leaderboardData[type] || [];
+  
+  const colorMap = {
+    voice: { label: '⏰ Total Time', class: 'voice', icon: '🎙️' },
+    economy: { label: '💰 Bank Balance', class: 'economy', icon: '🪙' },
+    quiz: { label: '🧠 IQ Score', class: 'quiz', icon: '💡' }
+  };
+  
+  const currentConfig = colorMap[type] || colorMap.voice;
+
+  if (data.length === 0) {
+    listPane.innerHTML = '<div style="padding: 40px; text-align: center; color: var(--text-muted)">No rankings yet</div>';
+    champPane.innerHTML = '<div style="padding: 40px; text-align: center; color: var(--text-muted)">No champion yet</div>';
+    return;
+  }
+
+  // 1. Render Top 1 Showcase (Right column)
+  const champion = data[0];
+  const formattedScore = type === 'voice' 
+    ? formatVoiceTime(champion.total_seconds) 
+    : (type === 'economy' ? `$${champion.balance.toLocaleString()}` : `${champion.correct_answers} pts`);
+    
+  const firstJoinMeta = type === 'voice' 
+    ? `<div class="champ-meta-row"><span>Joined:</span> <strong>${escapeHtml(champion.first_join)}</strong></div>`
+    : '';
+
+  champPane.innerHTML = `
+    <div class="champion-showcase-card ${currentConfig.class}">
+      <div class="champ-banner-overlay"></div>
+      <div class="champion-glow-ring"></div>
+      <div class="crown-badge">👑 TOP 1 CHAMPION</div>
+      
+      <div class="champ-avatar-container">
+        <img class="champ-large-avatar" src="${escapeHtml(champion.avatar_url)}" alt="avatar">
+        <div class="champ-rank-number">1</div>
+      </div>
+      
+      <h2 class="champ-display-name">${escapeHtml(champion.display_name)}</h2>
+      <p class="champ-username">@${escapeHtml(champion.username)}</p>
+      
+      <div class="champ-score-badge">
+        <span class="champ-score-icon">${currentConfig.icon}</span>
+        <span class="champ-score-value">${formattedScore}</span>
+      </div>
+      
+      <div class="champ-stats-footer">
+        <div class="champ-meta-row">
+          <span>Metric:</span>
+          <strong>${currentConfig.label}</strong>
+        </div>
+        ${firstJoinMeta}
+      </div>
+    </div>
+  `;
+
+  // 2. Render Ranks 2 to 10 List (Left column)
+  const contenders = data.slice(1, 10);
+  if (contenders.length === 0) {
+    listPane.innerHTML = '<div style="padding: 40px; text-align: center; color: var(--text-muted)">No other contenders yet</div>';
+    return;
+  }
+
+  const maxVal = type === 'voice' 
+    ? (champion.total_seconds || 1) 
+    : (type === 'economy' ? (champion.balance || 1) : (champion.correct_answers || 1));
+
+  listPane.innerHTML = `
+    <div class="contenders-container">
+      ${contenders.map((item, index) => {
+        const rank = index + 2;
+        const scoreVal = type === 'voice' 
+          ? item.total_seconds 
+          : (type === 'economy' ? item.balance : item.correct_answers);
+        const scoreStr = type === 'voice' 
+          ? formatVoiceTime(item.total_seconds) 
+          : (type === 'economy' ? `$${item.balance.toLocaleString()}` : `${item.correct_answers} pts`);
+          
+        const percentage = Math.round((scoreVal / maxVal) * 100);
+        
+        return `
+          <div class="contender-row">
+            <div class="contender-rank rank-${rank}">${rank}</div>
+            <img class="contender-row-avatar" src="${escapeHtml(item.avatar_url)}" alt="avatar">
+            
+            <div class="contender-row-info">
+              <div class="contender-row-meta">
+                <span class="contender-row-name">${escapeHtml(item.display_name)}</span>
+                <span class="contender-row-score">${scoreStr}</span>
+              </div>
+              <div class="row-progress-track">
+                <div class="row-progress-fill ${currentConfig.class}" style="width: ${percentage}%"></div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+// ==================== INTERACTIVE CHARTS & SIMULATED FEED ====================
+let voiceActivityChart = null;
+
+function initCharts() {
+  const ctx = document.getElementById('voice-activity-chart');
+  if (!ctx) return;
+
+  if (voiceActivityChart) {
+    voiceActivityChart.destroy();
+  }
+
+  const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const voiceData = [120, 150, 190, 220, 260, 310, 390]; 
+  
+  voiceActivityChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Voice Hours',
+        data: voiceData,
+        borderColor: '#B7FF00', 
+        borderWidth: 3,
+        backgroundColor: 'rgba(183, 255, 0, 0.1)',
+        fill: true,
+        tension: 0.4,
+        pointBackgroundColor: '#8B5CF6', 
+        pointBorderColor: '#B7FF00',
+        pointHoverRadius: 8,
+        pointRadius: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: false
+        }
+      },
+      scales: {
+        x: {
+          grid: {
+            color: 'rgba(255, 255, 255, 0.05)'
+          },
+          ticks: {
+            color: '#9ca3af',
+            font: {
+              family: 'Outfit'
+            }
+          }
+        },
+        y: {
+          grid: {
+            color: 'rgba(255, 255, 255, 0.05)'
+          },
+          ticks: {
+            color: '#9ca3af',
+            font: {
+              family: 'Outfit'
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+const simulatedNames = ['Kaishi', 'Ai', 'nh boy loy', 'Jockie Music', 'sg0874', 'mw_jinz_21893', 'niki060406', 'kezyy67'];
+const simulatedRooms = ['General Voice', 'Gaming Lounge', 'Music Room', 'Chill Zone', 'Private Chat'];
+const simulatedAvatars = [
+  'https://cdn.discordapp.com/embed/avatars/0.png',
+  'https://cdn.discordapp.com/embed/avatars/1.png',
+  'https://cdn.discordapp.com/embed/avatars/2.png',
+  'https://cdn.discordapp.com/embed/avatars/3.png',
+  'https://cdn.discordapp.com/embed/avatars/4.png'
+];
+
+function addSimulatedActivity() {
+  const feed = document.getElementById('simulated-activities-feed');
+  if (!feed) return;
+
+  const name = simulatedNames[Math.floor(Math.random() * simulatedNames.length)];
+  const room = simulatedRooms[Math.floor(Math.random() * simulatedRooms.length)];
+  const avatar = simulatedAvatars[Math.floor(Math.random() * simulatedAvatars.length)];
+  const xp = Math.floor(Math.random() * 20) + 5;
+  
+  const actions = [
+    `joined voice room <strong style="color: var(--neon-green)">${room}</strong>`,
+    `earned <strong style="color: var(--neon-purple)">+${xp} XP</strong> in voice call`,
+    `switched to channel <strong style="color: var(--neon-cyan)">${room}</strong>`,
+    `unlocked a new badge activity milestone`
+  ];
+  
+  const action = actions[Math.floor(Math.random() * actions.length)];
+  const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  const logHtml = `
+    <div class="feed-item fade-in">
+      <img class="feed-item-avatar" src="${avatar}" alt="avatar">
+      <div class="feed-item-content">
+        <span class="feed-user">${name}</span> ${action}
+      </div>
+      <span class="feed-time">${time}</span>
+    </div>
+  `;
+
+  feed.insertAdjacentHTML('afterbegin', logHtml);
+
+  if (feed.children.length > 8) {
+    feed.removeChild(feed.lastElementChild);
+  }
+}
+
+function startSimulatedFeed() {
+  for (let i = 0; i < 5; i++) {
+    addSimulatedActivity();
+  }
+  setInterval(addSimulatedActivity, 5000);
 }

@@ -25,12 +25,23 @@ load_dotenv()
 TOKEN     = os.getenv('DISCORD_TOKEN')
 MONGO_URL = os.getenv('MONGO_URL')
 
+# Patch DNS resolver to use Google & Cloudflare DNS (fixes DNS timeout issues on MongoDB SRV on some networks)
+try:
+    import dns.resolver
+    dns.resolver.default_resolver = dns.resolver.Resolver(configure=False)
+    dns.resolver.default_resolver.nameservers = ['8.8.8.8', '8.8.4.4', '1.1.1.1']
+    print("✅ [DNS PATCH] Applied successfully (using public DNS for MongoDB).")
+except Exception as dns_err:
+    print(f"⚠️ [DNS PATCH] Could not apply public DNS patch: {dns_err}")
+
 try:
     mongo_client = MongoClient(MONGO_URL, serverSelectionTimeoutMS=5000, tlsCAFile=certifi.where())
     db           = mongo_client['discord_bot']
     collection   = db['voice_activity']   # សម្រាប់ស្ទង់ម៉ោង Voice
     money_col    = db['users']            # សម្រាប់លុយ Kla Klouk
     quiz_col     = db['quiz_scores']       # សម្រាប់ពិន្ទុ IQ Quiz
+    # Force connection check
+    mongo_client.admin.command('ping')
     print("✅ [DATABASE] Connected successfully!")
 except Exception as e:
     print(f"❌ [DATABASE] Error: {e}")
@@ -925,7 +936,10 @@ async def api_public_update_location(request):
 
 # Static file serving handlers
 async def index_handler(request):
-    res = web.FileResponse(os.path.join(os.path.dirname(__file__), 'dashboard', 'leaderboard.html'))
+    dist_path = os.path.join(os.path.dirname(__file__), 'dashboard', 'dist', 'index.html')
+    legacy_path = os.path.join(os.path.dirname(__file__), 'dashboard', 'leaderboard.html')
+    target_path = dist_path if os.path.exists(dist_path) else legacy_path
+    res = web.FileResponse(target_path)
     res.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     res.headers['Pragma'] = 'no-cache'
     res.headers['Expires'] = '0'
@@ -979,6 +993,12 @@ async def start_web_server():
     
     # Static files routing
     app.router.add_get('/', index_handler)
+    
+    # Map React Vite asset output if present
+    dist_assets_dir = os.path.join(os.path.dirname(__file__), 'dashboard', 'dist', 'assets')
+    if os.path.exists(dist_assets_dir):
+        app.router.add_static('/assets', dist_assets_dir)
+        
     app.router.add_get('/style.css', style_handler)
     app.router.add_get('/app.js', app_js_handler)
     
