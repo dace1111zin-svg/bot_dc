@@ -55,7 +55,7 @@ except Exception as e:
 # ════════════════════════════════════════════
 STAY_VOICE_CHANNEL_ID  = 1495160098216218675
 WELCOME_CHANNEL_ID     = 1492953340584399009
-LEADERBOARD_CHANNEL_ID = 1492953771423043695
+LEADERBOARD_CHANNEL_ID = 149295377142304369
 CREATE_CHANNEL_ID      = 1496428434107138148
 PARENT_CATEGORY_ID     = 1494236441725767701
 
@@ -148,25 +148,37 @@ async def _save_voice_time(user_id: str, duration: float):
         )
     await asyncio.to_thread(run)
 
+is_rejoining = False
+
 async def force_join_stay_channel():
-    channel = bot.get_channel(STAY_VOICE_CHANNEL_ID)
-    if not channel:
-        print(f"❌ [VOICE ERROR] Could not find channel ID: {STAY_VOICE_CHANNEL_ID}")
+    global is_rejoining
+    if is_rejoining:
         return
-    existing_vc = discord.utils.get(bot.voice_clients, guild=channel.guild)
-
-    if existing_vc and existing_vc.channel.id == STAY_VOICE_CHANNEL_ID and existing_vc.is_connected():
-        return
-
-    if existing_vc:
-        await existing_vc.disconnect(force=True)
-        await asyncio.sleep(1)
-
+    is_rejoining = True
     try:
-        await channel.connect(reconnect=True, timeout=20)
-        print(f"🎙️ [VOICE] Bot joined: {channel.name}")
-    except Exception as e:
-        print(f"❌ [VOICE ERROR]: {e}")
+        channel = bot.get_channel(STAY_VOICE_CHANNEL_ID)
+        if not channel:
+            print(f"❌ [VOICE ERROR] Could not find channel ID: {STAY_VOICE_CHANNEL_ID}")
+            return
+        existing_vc = discord.utils.get(bot.voice_clients, guild=channel.guild)
+
+        if existing_vc and existing_vc.channel.id == STAY_VOICE_CHANNEL_ID and existing_vc.is_connected():
+            return
+
+        if existing_vc:
+            try:
+                await existing_vc.disconnect(force=True)
+            except Exception:
+                pass
+            await asyncio.sleep(1)
+
+        try:
+            await channel.connect(reconnect=True, timeout=20)
+            print(f"🎙️ [VOICE] Bot joined: {channel.name}")
+        except Exception as e:
+            print(f"❌ [VOICE ERROR]: {e}")
+    finally:
+        is_rejoining = False
 
 async def update_rank_role(member, total_seconds):
     """Give the highest earned rank role and remove lower ones."""
@@ -282,8 +294,9 @@ async def update_balance(user_id, amount):
 # ════════════════════════════════════════════
 # 🌐 ADMIN DASHBOARD REST APIs & ROUTING
 # ════════════════════════════════════════════
-dashboard_tokens = set()
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+dashboard_tokens = {}
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "nhoy")
+IMAGE_PASSWORD = os.getenv("IMAGE_PASSWORD", "image")
 
 def auth_required(handler):
     async def wrapper(request):
@@ -294,10 +307,21 @@ def auth_required(handler):
         return await handler(request)
     return wrapper
 
+def admin_required(handler):
+    async def wrapper(request):
+        auth_header = request.headers.get('Authorization', '')
+        token = auth_header.replace('Bearer ', '').strip() if auth_header.startswith('Bearer ') else ''
+        if not token or dashboard_tokens.get(token) != 'admin':
+            return web.json_response({"error": "Unauthorized: Admin role required"}, status=403)
+        return await handler(request)
+    return wrapper
+
 # Auth verification endpoint
 @auth_required
 async def api_verify(request):
-    return web.json_response({"success": True})
+    auth_header = request.headers.get('Authorization', '')
+    token = auth_header.replace('Bearer ', '').strip() if auth_header.startswith('Bearer ') else ''
+    return web.json_response({"success": True, "role": dashboard_tokens.get(token)})
 
 # Admin login endpoint
 async def api_login(request):
@@ -309,12 +333,18 @@ async def api_login(request):
     password = data.get("password")
     if password == ADMIN_PASSWORD:
         token = secrets.token_hex(16)
-        dashboard_tokens.add(token)
-        return web.json_response({"success": True, "token": token})
+        dashboard_tokens[token] = 'admin'
+        return web.json_response({"success": True, "token": token, "role": "admin"})
+    elif password == IMAGE_PASSWORD:
+        token = secrets.token_hex(16)
+        dashboard_tokens[token] = 'image'
+        return web.json_response({"success": True, "token": token, "role": "image"})
+        
     return web.json_response({"error": "Invalid password"}, status=401)
 
+
 # Stats endpoint
-@auth_required
+@admin_required
 async def api_stats(request):
     uptime_sec = time.time() - start_time
     latency_ms = round(bot.latency * 1000, 2) if bot.latency else 0
@@ -354,7 +384,7 @@ async def api_stats(request):
     })
 
 # Users retrieval endpoint
-@auth_required
+@admin_required
 async def api_users(request):
     search_query = request.query.get("search", "").strip().lower()
     
@@ -432,7 +462,7 @@ async def api_users(request):
     return web.json_response({"users": users_data})
 
 # User update endpoint
-@auth_required
+@admin_required
 async def api_users_update(request):
     try:
         data = await request.json()
@@ -485,7 +515,7 @@ async def api_users_update(request):
     return web.json_response({"success": True})
 
 # User deletion endpoint
-@auth_required
+@admin_required
 async def api_users_delete(request):
     try:
         data = await request.json()
@@ -524,7 +554,7 @@ async def api_users_delete(request):
 
 
 # Configuration getters/setters
-@auth_required
+@admin_required
 async def api_config_get(request):
     return web.json_response({
         "STAY_VOICE_CHANNEL_ID": str(STAY_VOICE_CHANNEL_ID),
@@ -535,7 +565,7 @@ async def api_config_get(request):
         "AUTO_ROLE_ID": str(AUTO_ROLE_ID)
     })
 
-@auth_required
+@admin_required
 async def api_config_set(request):
     try:
         data = await request.json()
@@ -556,7 +586,7 @@ async def api_config_set(request):
     return web.json_response({"success": True})
 
 # Broadcast listing and dispatcher
-@auth_required
+@admin_required
 async def api_channels_get(request):
     channels = []
     for guild in bot.guilds:
@@ -568,7 +598,7 @@ async def api_channels_get(request):
             })
     return web.json_response({"channels": channels})
 
-@auth_required
+@admin_required
 async def api_broadcast(request):
     try:
         data = await request.json()
@@ -809,6 +839,23 @@ async def api_public_search(request):
     results.sort(key=lambda x: x.get("total_seconds", 0), reverse=True)
     return web.json_response({"results": results})
 
+async def api_public_banners(request):
+    try:
+        files = []
+        active_name = get_active_banner_name()
+        for f in os.listdir(uploads_dir):
+            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                files.append({
+                    "filename": f,
+                    "url": f"/uploads/{f}",
+                    "active": f == active_name
+                })
+        # Sort so that active banner is the first slide, then by file name or time
+        files.sort(key=lambda x: 0 if x["active"] else 1)
+        return web.json_response({"banners": files})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
 async def api_public_locations(request):
     if db is None:
         return web.json_response({"error": "Database not connected"}, status=500)
@@ -959,6 +1006,177 @@ async def app_js_handler(request):
     res.headers['Expires'] = '0'
     return res
 
+uploads_dir = os.path.join(os.path.dirname(__file__), 'uploads')
+os.makedirs(uploads_dir, exist_ok=True)
+
+# Copy current hero_banner.png to uploads as default_banner.png if uploads is empty
+default_banner_path = os.path.join(uploads_dir, 'default_banner.png')
+if not os.path.exists(default_banner_path):
+    root_banner = os.path.join(os.path.dirname(__file__), 'hero_banner.png')
+    if os.path.exists(root_banner):
+        import shutil
+        try:
+            shutil.copy(root_banner, default_banner_path)
+        except Exception as e:
+            print(f"Error copying default banner: {e}")
+
+active_json_path = os.path.join(os.path.dirname(__file__), 'active_banner.json')
+
+def get_active_banner_name():
+    if os.path.exists(active_json_path):
+        try:
+            import json
+            with open(active_json_path, 'r') as f:
+                data = json.load(f)
+                return data.get("active_banner", "default_banner.png")
+        except Exception:
+            pass
+    return "default_banner.png"
+
+def set_active_banner_name(name):
+    try:
+        import json
+        with open(active_json_path, 'w') as f:
+            json.dump({"active_banner": name}, f)
+    except Exception as e:
+        print(f"Error saving active banner name: {e}")
+
+def apply_banner_image(filename):
+    target_img = os.path.join(uploads_dir, filename)
+    if not os.path.exists(target_img):
+        return False
+        
+    # Copy to the 3 locations
+    root_path = os.path.join(os.path.dirname(__file__), 'hero_banner.png')
+    src_path = os.path.join(os.path.dirname(__file__), 'dashboard', 'src', 'hero_banner.png')
+    pub_path = os.path.join(os.path.dirname(__file__), 'dashboard', 'public', 'hero_banner.png')
+    
+    import shutil
+    for path in (root_path, src_path, pub_path):
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            shutil.copy(target_img, path)
+        except Exception as e:
+            print(f"Error copying banner to {path}: {e}")
+            
+    # Save selection
+    set_active_banner_name(filename)
+    
+    # Trigger Vite build
+    try:
+        import subprocess
+        dashboard_dir = os.path.join(os.path.dirname(__file__), 'dashboard')
+        subprocess.Popen(["npm", "run", "build"], cwd=dashboard_dir, shell=True)
+        print(f"🚀 [DASHBOARD] Rebuild triggered for active banner: {filename}")
+    except Exception as e:
+        print(f"❌ [DASHBOARD] Failed to trigger build: {e}")
+        
+    return True
+
+# Handler to upload new hero banner
+@auth_required
+async def api_upload_banner(request):
+    try:
+        reader = await request.multipart()
+        field = await reader.next()
+        if not field or field.name != 'file':
+            return web.json_response({"error": "Invalid field name, must be 'file'"}, status=400)
+        
+        filename = field.filename
+        if not filename or not filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+            return web.json_response({"error": "Invalid file type. Only PNG, JPG, JPEG, WEBP allowed."}, status=400)
+        
+        # Create unique filename
+        ext = os.path.splitext(filename)[1]
+        unique_name = f"banner_{int(time.time())}{ext}"
+        target_path = os.path.join(uploads_dir, unique_name)
+
+        size = 0
+        with open(target_path, 'wb') as f:
+            while True:
+                chunk = await field.read_chunk()
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > 5 * 1024 * 1024:
+                    f.close()
+                    try: os.remove(target_path)
+                    except Exception: pass
+                    return web.json_response({"error": "File exceeds 5MB"}, status=400)
+                f.write(chunk)
+        
+        # Set as active and apply
+        apply_banner_image(unique_name)
+        return web.json_response({"success": True, "filename": unique_name})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+@auth_required
+async def api_get_banners(request):
+    try:
+        files = []
+        active_name = get_active_banner_name()
+        for f in os.listdir(uploads_dir):
+            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                f_path = os.path.join(uploads_dir, f)
+                files.append({
+                    "filename": f,
+                    "url": f"/uploads/{f}",
+                    "active": f == active_name,
+                    "created_at": os.path.getctime(f_path)
+                })
+        # Sort by creation time (newest first)
+        files.sort(key=lambda x: x["created_at"], reverse=True)
+        return web.json_response({"banners": files})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+@auth_required
+async def api_set_banner(request):
+    try:
+        data = await request.json()
+        filename = data.get("filename")
+        if not filename:
+            return web.json_response({"error": "Missing filename"}, status=400)
+            
+        success = apply_banner_image(filename)
+        if success:
+            return web.json_response({"success": True})
+        return web.json_response({"error": "File not found"}, status=404)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+@auth_required
+async def api_delete_banner(request):
+    try:
+        data = await request.json()
+        filename = data.get("filename")
+        if not filename:
+            return web.json_response({"error": "Missing filename"}, status=400)
+            
+        if filename == get_active_banner_name() or filename == "default_banner.png":
+            return web.json_response({"error": "Cannot delete active or default banner"}, status=400)
+            
+        target_path = os.path.join(uploads_dir, filename)
+        if os.path.exists(target_path):
+            os.remove(target_path)
+            return web.json_response({"success": True})
+        return web.json_response({"error": "File not found"}, status=404)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+async def admin_handler(request):
+    path = os.path.join(os.path.dirname(__file__), 'admin.html')
+    if os.path.exists(path):
+        return web.FileResponse(path)
+    return web.Response(status=404)
+
+async def hero_banner_handler(request):
+    path = os.path.join(os.path.dirname(__file__), 'hero_banner.png')
+    if os.path.exists(path):
+        return web.FileResponse(path)
+    return web.Response(status=404)
+
 @web.middleware
 async def cors_middleware(request, handler):
     if request.method == "OPTIONS":
@@ -978,7 +1196,12 @@ async def start_web_server():
     # API endpoints
     app.router.add_post('/api/login', api_login)
     app.router.add_get('/api/verify', api_verify)
+    app.router.add_post('/api/admin/upload_banner', api_upload_banner)
+    app.router.add_get('/api/admin/banners', api_get_banners)
+    app.router.add_post('/api/admin/set_banner', api_set_banner)
+    app.router.add_post('/api/admin/delete_banner', api_delete_banner)
     app.router.add_get('/api/public/leaderboards', api_public_leaderboards)
+    app.router.add_get('/api/public/banners', api_public_banners)
     app.router.add_get('/api/public/search', api_public_search)
     app.router.add_get('/api/public/locations', api_public_locations)
     app.router.add_post('/api/public/update_location', api_public_update_location)
@@ -993,12 +1216,16 @@ async def start_web_server():
     
     # Static files routing
     app.router.add_get('/', index_handler)
+    app.router.add_get('/admin.html', admin_handler)
+    app.router.add_get('/admin_new.html', admin_handler)
+    app.router.add_get('/hero_banner.png', hero_banner_handler)
     
     # Map React Vite asset output if present
     dist_assets_dir = os.path.join(os.path.dirname(__file__), 'dashboard', 'dist', 'assets')
     if os.path.exists(dist_assets_dir):
         app.router.add_static('/assets', dist_assets_dir)
         
+    app.router.add_static('/uploads', uploads_dir)
     app.router.add_get('/style.css', style_handler)
     app.router.add_get('/app.js', app_js_handler)
     

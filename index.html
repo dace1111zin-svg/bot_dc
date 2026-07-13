@@ -236,6 +236,24 @@
             <!-- Cards will be injected here -->
         </div>
 
+        <!-- Hero Banner Image -->
+        <div class="w-full max-w-4xl mx-auto mt-12 mb-12 px-2 fade-in-up" style="animation-delay: 100ms;">
+            <div class="relative rounded-3xl overflow-hidden border border-white/10 shadow-2xl group hover:border-primary/50 transition-all duration-500 shadow-primary/10">
+                <!-- Ambient Glow behind the image -->
+                <div class="absolute -inset-1 bg-gradient-to-r from-primary to-accent rounded-3xl blur opacity-25 group-hover:opacity-40 transition duration-1000 group-hover:duration-200"></div>
+                
+                <div class="relative bg-black/40 backdrop-blur-xl rounded-3xl overflow-hidden aspect-[21/9] sm:aspect-[16/7] md:aspect-[16/6] lg:aspect-[16/5]">
+                    <img src="hero_banner.png" alt="Premium iOS Tools Banner" class="w-full h-full object-cover opacity-90 group-hover:scale-[1.02] group-hover:opacity-100 transition duration-700">
+                    
+                    <!-- Decorative corner details to make it feel premium -->
+                    <div class="absolute top-4 left-4 flex items-center gap-1.5 bg-black/60 px-3 py-1 rounded-full border border-white/10 backdrop-blur-md">
+                        <span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+                        <span class="text-[10px] font-bold tracking-widest text-gray-300 uppercase font-mono">Premium Hub</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Global Inflation Map Section -->
         <div id="global-inflation-map-content" class="glass-card rounded-3xl p-6 md:p-8 mt-12 fade-in-up">
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
